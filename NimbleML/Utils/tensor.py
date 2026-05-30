@@ -302,7 +302,7 @@ class Tensor:
 
     def relu(self):
         out_data = [val if val > 0 else 0.0 for val in self.data]
-        out = Tensor(out_data, self.shape, requires_grad=self.requires_grad, _children=(self), _op="relu")
+        out = Tensor(out_data, self.shape, requires_grad=self.requires_grad, _children=(self,), _op="relu")
         mask = [1.0 if val > 0 else 0.0 for val in self.data]
 
         def _backward():
@@ -315,7 +315,7 @@ class Tensor:
         return out
 
     def sum(self):
-        out = Tensor([sum(self.data)], (), requires_grad=self.requires_grad, _children=(self), _op="sum")
+        out = Tensor([sum(self.data)], (), requires_grad=self.requires_grad, _children=(self,), _op="sum")
 
         def _backward():
             if out.grad is None or not self.requires_grad:
@@ -333,7 +333,7 @@ class Tensor:
         if prod(new_shape) != self.size:
             raise ValueError("New shape must have the same number of elements as the original shape.")
 
-        out = Tensor(self.data, new_shape, requires_grad=self.requires_grad, _children=(self), _op="reshape")
+        out = Tensor(self.data, new_shape, requires_grad=self.requires_grad, _children=(self,), _op="reshape")
 
         def _backward():
             if out.grad is None or not self.requires_grad:
@@ -353,7 +353,7 @@ class Tensor:
             for j in range(cols):
                 out_data[j * rows + i] = self.data[i * cols + j]
 
-        out = Tensor(out_data, (cols, rows), requires_grad=self.requires_grad, _children=(self), _op="transpose")
+        out = Tensor(out_data, (cols, rows), requires_grad=self.requires_grad, _children=(self,), _op="transpose")
 
         def _backward():
             if out.grad is None or not self.requires_grad:
