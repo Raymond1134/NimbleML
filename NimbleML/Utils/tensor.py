@@ -251,6 +251,54 @@ class Tensor:
 
         out._backward = _backward
         return out
+    
+    @staticmethod
+    def _pad_shape(shape, target_ndim):
+        if len(shape) > target_ndim:
+            raise ValueError("Target ndim must be greater than or equal to the tensor's current ndim.")
+        return (1,) * (target_ndim - len(shape)) + shape
+    
+    @staticmethod
+    def _broadcast_shape(shape_a, shape_b):
+        ndim = max(len(shape_a), len(shape_b))
+        shape_a = Tensor._pad_shape(shape_a, ndim)
+        shape_b = Tensor._pad_shape(shape_b, ndim)
+        out = []
+        
+        for dim_a, dim_b in zip(shape_a, shape_b):
+            if dim_a == dim_b or dim_a == 1 or dim_b == 1:
+                out.append(max(dim_a, dim_b))
+            else:
+                raise ValueError(f"Shapes {shape_a} and {shape_b} are not compatible for broadcasting.")
+
+        return tuple(out), shape_a, shape_b
+
+    @staticmethod
+    def _iter_indices(shape):
+        if len(shape) == 0:
+            yield ()
+            return;
+        
+        def iter(prefix, dim):
+            if dim == len(shape):
+                yield tuple(prefix)
+                return
+            for i in range(shape[dim]):
+                prefix.append(i)
+                yield from iter(prefix, dim + 1)
+                prefix.pop()
+        
+        yield from iter([], 0)
+    
+    @staticmethod
+    def _broadcast_index(out_idx, in_shape):
+        indices = []
+        for axis, dim in enumerate(in_shape):
+            if dim == 1:
+                indices.append(0)
+            else:
+                indices.append(out_idx[axis])
+        return tuple(indices)
 
     def matmul(self, other):
         other = self._ensure_tensor(other)
