@@ -42,19 +42,6 @@ class CrossEntropyLoss:
         loss = total_loss / batch_size
         output = Tensor([loss], (), requires_grad=logits.requires_grad, _children=(logits,), _op="cross_entropy",)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
         def _backward():
             if not logits.requires_grad:
                 return

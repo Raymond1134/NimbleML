@@ -48,11 +48,11 @@ def accuracy(model, images, labels, batch_size):
 def main():
     parser = argparse.ArgumentParser(description="Train a tiny MNIST MLP.")
     parser.add_argument("--data-dir", default=os.path.join("data", "mnist"))
-    parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--batch-size", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=0.03)
-    parser.add_argument("--train-limit", type=int, default=500)
-    parser.add_argument("--test-limit", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=0.05)
+    parser.add_argument("--train-limit", type=int, default=1000)
+    parser.add_argument("--test-limit", type=int, default=1000)
     args = parser.parse_args()
 
     (train_images, train_labels), (test_images, test_labels) = load_mnist(args.data_dir)
@@ -90,7 +90,27 @@ def main():
 
         acc = accuracy(model, test_images, test_labels, args.batch_size)
         avg_loss = total_loss / max(1, batches)
-        print(f"Epoch {epoch}: loss={avg_loss:.4f} acc={acc:.4f}")
+
+        train_acc = accuracy(
+            model,
+            train_images,
+            train_labels,
+            args.batch_size
+        )
+
+        test_acc = accuracy(
+            model,
+            test_images,
+            test_labels,
+            args.batch_size
+        )
+
+        print(
+            f"Epoch {epoch}: "
+            f"loss={avg_loss:.4f} "
+            f"train_acc={train_acc:.4f} "
+            f"test_acc={test_acc:.4f}"
+        )
 
 
 if __name__ == "__main__":
