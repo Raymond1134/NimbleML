@@ -353,8 +353,15 @@ class Tensor:
         out._backward = _backward
         return out
 
-    def mean(self):
-        return self.sum() / self.size
+    def mean(self, axis=None, keepdims=False):
+        summed_tensor = self.sum(axis=axis, keepdims=keepdims)
+        if axis is None:
+            count = float(self.size)
+        else:
+            axes = axis if isinstance(axis, (tuple, list)) else (axis,)
+            axes = tuple(ax + self.ndim if ax < 0 else ax for ax in axes)
+            count = float(prod(self.shape[ax] for ax in axes))
+        return summed_tensor / count
 
     def reshape(self, new_shape):
         if prod(new_shape) != self.size:
