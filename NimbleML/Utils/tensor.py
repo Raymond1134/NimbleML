@@ -410,6 +410,29 @@ class Tensor:
                 f"Expected {self.size} data values, got {len(self.data)} data values."
             )
 
+
+
+
+    def flatten(self, start_dim=0, end_dim=-1):
+        if self.ndim == 0:
+            if start_dim not in (0, -1) or end_dim not in (0, -1):
+                raise ValueError("start_dim and end_dim must be 0 or -1 for scalar tensors.")
+            return self.reshape((1,))
+
+        if start_dim < 0:
+            start_dim += self.ndim
+        if end_dim < 0:
+            end_dim += self.ndim
+
+        if start_dim < 0 or end_dim < 0 or start_dim >= self.ndim or end_dim >= self.ndim:
+            raise ValueError("start_dim and end_dim must be within tensor dimensions.")
+        if start_dim > end_dim:
+            raise ValueError("start_dim must be less than or equal to end_dim.")
+
+        flattened = prod(self.shape[start_dim:end_dim + 1])
+        new_shape = self.shape[:start_dim] + (flattened,) + self.shape[end_dim + 1:]
+        return self.reshape(new_shape)
+    
     @staticmethod
     def _compute_strides(shape):
         strides = []
