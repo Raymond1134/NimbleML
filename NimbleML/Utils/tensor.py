@@ -410,9 +410,6 @@ class Tensor:
                 f"Expected {self.size} data values, got {len(self.data)} data values."
             )
 
-
-
-
     def flatten(self, start_dim=0, end_dim=-1):
         if self.ndim == 0:
             if start_dim not in (0, -1) or end_dim not in (0, -1):
@@ -432,6 +429,57 @@ class Tensor:
         flattened = prod(self.shape[start_dim:end_dim + 1])
         new_shape = self.shape[:start_dim] + (flattened,) + self.shape[end_dim + 1:]
         return self.reshape(new_shape)
+    
+    def squeeze(self, axis=None):
+        if axis is None:
+            new_shape = tuple(dim for dim in self.shape if dim != 1)
+            return self.reshape(new_shape if new_shape else ())
+        if isinstance(axis, int):
+            axis = (axis,)
+        elif isinstance(axis, (list, tuple)):
+            axis = tuple(axis)
+        else:
+            raise TypeError("axis must be int, tuple, list, or None")
+        
+        axes = tuple(ax + self.ndim if ax < 0 else ax for ax in axis)
+        if len(set(axes)) != len(axes):
+            raise ValueError("axis has duplicates")
+        if any(ax < 0 or ax >= self.ndim for ax in axes):
+            raise ValueError(f"axis out of range for ndim {self.ndim}")
+        
+        for ax in axes:
+            if self.shape[ax] != 1:
+                raise ValueError(f"Cannot squeeze dimension {ax} with size {self.shape[ax]}")
+        
+        new_shape = tuple(dim for i, dim in enumerate(self.shape) if i not in axes)
+        return self.reshape(new_shape if new_shape else ())
+
+    def unsqueeze(self, axis):
+        if isinstance(axis, int):
+            axis = (axis,)
+        elif isinstance(axis, (list, tuple)):
+            axis = tuple(axis)
+        else:
+            raise TypeError("axis must be int, tuple, or list")
+
+        new_ndim = self.ndim + len(axis)
+        axes = tuple(ax + new_ndim if ax < 0 else ax for ax in axis)
+        if len(set(axes)) != len(axes):
+            raise ValueError("axis has duplicates")
+        if any(ax < 0 or ax >= new_ndim for ax in axes):
+            raise ValueError(f"axis out of range for resulting ndim {new_ndim}")
+
+        axes_set = set(axes)
+        new_shape = []
+        src_i = 0
+        for i in range(new_ndim):
+            if i in axes_set:
+                new_shape.append(1)
+            else:
+                new_shape.append(self.shape[src_i])
+                src_i += 1
+
+        return self.reshape(tuple(new_shape))
     
     @staticmethod
     def _compute_strides(shape):
