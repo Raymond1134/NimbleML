@@ -11,7 +11,6 @@ from NimbleML.losses import CrossEntropyLoss
 from NimbleML.optim import SGD
 from NimbleML.utils.tensor import Tensor
 
-
 def batch_iter(images, labels, batch_size, shuffle=True):
     indices = list(range(len(images)))
     if shuffle:
@@ -24,7 +23,6 @@ def batch_iter(images, labels, batch_size, shuffle=True):
         flat = [value for image in batch_images for value in image]
         x = Tensor(flat, (len(batch_images), len(batch_images[0])))
         yield x, batch_labels
-
 
 def accuracy(model, images, labels, batch_size):
     correct = 0
@@ -44,15 +42,14 @@ def accuracy(model, images, labels, batch_size):
 
     return correct / max(1, total)
 
-
 def main():
     parser = argparse.ArgumentParser(description="Train a tiny MNIST MLP.")
     parser.add_argument("--data-dir", default=os.path.join("data", "mnist"))
-    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=0.05)
-    parser.add_argument("--train-limit", type=int, default=1000)
-    parser.add_argument("--test-limit", type=int, default=1000)
+    parser.add_argument("--lr", type=float, default=0.03)
+    parser.add_argument("--train-limit", type=int, default=None)
+    parser.add_argument("--test-limit", type=int, default=None)
     args = parser.parse_args()
 
     (train_images, train_labels), (test_images, test_labels) = load_mnist(args.data_dir)
@@ -67,9 +64,9 @@ def main():
     model = [
         Dense(784, 256),
         Relu(),
-        Dense(256, 128),
+        Dense(256, 64),
         Relu(),
-        Dense(128, 10),
+        Dense(64, 10),
     ]
 
     loss_fn = CrossEntropyLoss()

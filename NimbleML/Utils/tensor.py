@@ -1,6 +1,7 @@
 # tensor.py
 # Minimal autograd tensor for 1D/2D workloads.
 from math import prod
+import numpy as np
 
 class Tensor:
     def __init__(self, data, shape, requires_grad=False, _children=(), _op=""):
@@ -233,14 +234,9 @@ class Tensor:
 
         rows, inner = self.shape
         _, cols = other.shape
-        out_data = [0.0] * (rows * cols)
-
-        for i in range(rows):
-            for j in range(cols):
-                acc = 0.0
-                for k in range(inner):
-                    acc += self.data[i * inner + k] * other.data[k * cols + j]
-                out_data[i * cols + j] = acc
+        left = np.array(self.data, dtype=float).reshape(self.shape)
+        right = np.array(other.data, dtype=float).reshape(other.shape)
+        out_data = (left @ right).reshape(-1).tolist()
 
         out = Tensor(out_data, (rows, cols), requires_grad=self.requires_grad or other.requires_grad, _children=(self, other), _op="matmul")
 
@@ -249,25 +245,15 @@ class Tensor:
                 return
             grad_out = out.grad
 
+            grad_out_arr = np.array(grad_out, dtype=float).reshape(rows, cols)
             if self.requires_grad:
-                grad_self = [0.0] * (rows * inner)
-                for i in range(rows):
-                    for k in range(inner):
-                        acc = 0.0
-                        for j in range(cols):
-                            acc += grad_out[i * cols + j] * other.data[k * cols + j]
-                        grad_self[i * inner + k] = acc
-                self._accumulate_grad(grad_self)
-
+                other_arr = np.array(other.data, dtype=float).reshape(other.shape)
+                grad_self = grad_out_arr @ other_arr.T
+                self._accumulate_grad(grad_self.reshape(-1).tolist())
             if other.requires_grad:
-                grad_other = [0.0] * (inner * cols)
-                for k in range(inner):
-                    for j in range(cols):
-                        acc = 0.0
-                        for i in range(rows):
-                            acc += self.data[i * inner + k] * grad_out[i * cols + j]
-                        grad_other[k * cols + j] = acc
-                other._accumulate_grad(grad_other)
+                self_arr = np.array(self.data, dtype=float).reshape(self.shape)
+                grad_other = self_arr.T @ grad_out_arr
+                other._accumulate_grad(grad_other.reshape(-1).tolist())
 
         out._backward = _backward
         return out

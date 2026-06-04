@@ -5,5 +5,6 @@ A lightweight Python machine learning library for building and training simple m
 Run the minimal MNIST training script (downloads data to data/mnist):
 
 ```bash
+python -m pip install numpy
 python train_mnist.py --epochs 1 --train-limit 1000 --test-limit 200
 ```
