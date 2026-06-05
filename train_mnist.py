@@ -8,7 +8,7 @@ from NimbleML.core import forward, parameters
 from NimbleML.data import load_mnist
 from NimbleML.layers import Dense
 from NimbleML.losses import CrossEntropyLoss
-from NimbleML.optim import SGD
+from NimbleML.optimizers import SGDM
 from NimbleML.utils.tensor import Tensor
 
 def batch_iter(images, labels, batch_size, shuffle=True):
@@ -45,11 +45,12 @@ def accuracy(model, images, labels, batch_size):
 def main():
     parser = argparse.ArgumentParser(description="Train a tiny MNIST MLP.")
     parser.add_argument("--data-dir", default=os.path.join("data", "mnist"))
-    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.03)
-    parser.add_argument("--train-limit", type=int, default=None)
-    parser.add_argument("--test-limit", type=int, default=None)
+    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--train-limit", type=int, default=500)
+    parser.add_argument("--test-limit", type=int, default=100)
     args = parser.parse_args()
 
     (train_images, train_labels), (test_images, test_labels) = load_mnist(args.data_dir)
@@ -70,7 +71,7 @@ def main():
     ]
 
     loss_fn = CrossEntropyLoss()
-    optim = SGD(parameters(model), args.lr)
+    optim = SGDM(parameters(model), args.lr, args.momentum)
 
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0

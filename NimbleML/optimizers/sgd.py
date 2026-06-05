@@ -1,6 +1,5 @@
 # sgd.py
 # Stochastic Gradient Descent
-
 from .optimizer import Optimizer
 
 class SGD(Optimizer):

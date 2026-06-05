@@ -2,7 +2,7 @@ from .core import forward, parameters
 from .layers import Dense
 from .activations import Relu, Softmax
 from .losses import CrossEntropyLoss
-from .optim import Optimizer, SGD
+from .optimizers import Optimizer, SGD
 
 __all__ = [
 	"forward",
