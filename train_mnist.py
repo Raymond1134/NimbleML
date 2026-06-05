@@ -1,15 +1,20 @@
 import argparse
 import os
 import random
-from xml.parsers.expat import model
 
 from NimbleML.activations import Relu
 from NimbleML.core import forward, parameters
 from NimbleML.data import load_mnist
 from NimbleML.layers import Dense
 from NimbleML.losses import CrossEntropyLoss
-from NimbleML.optimizers import NAG
+from NimbleML.optimizers import NAG, SGD, SGDM
 from NimbleML.utils.tensor import Tensor
+
+OPTIMIZERS = {
+    "sgd": SGD,
+    "sgdm": SGDM,
+    "nag": NAG,
+}
 
 def batch_iter(images, labels, batch_size, shuffle=True):
     indices = list(range(len(images)))
@@ -46,11 +51,12 @@ def main():
     parser = argparse.ArgumentParser(description="Train a tiny MNIST MLP.")
     parser.add_argument("--data-dir", default=os.path.join("data", "mnist"))
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=0.03)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=0.025)
     parser.add_argument("--momentum", type=float, default=0.9)
-    parser.add_argument("--train-limit", type=int, default=500)
-    parser.add_argument("--test-limit", type=int, default=100)
+    parser.add_argument("--optimizer", choices=OPTIMIZERS, default="nag")
+    parser.add_argument("--train-limit", type=int, default=1000)
+    parser.add_argument("--test-limit", type=int, default=250)
     args = parser.parse_args()
 
     (train_images, train_labels), (test_images, test_labels) = load_mnist(args.data_dir)
@@ -71,7 +77,11 @@ def main():
     ]
 
     loss_fn = CrossEntropyLoss()
-    optim = NAG(parameters(model), args.lr, args.momentum)
+    optim_cls = OPTIMIZERS[args.optimizer]
+    if args.optimizer == "sgd":
+        optim = optim_cls(parameters(model), args.lr)
+    else:
+        optim = optim_cls(parameters(model), args.lr, args.momentum)
 
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0
