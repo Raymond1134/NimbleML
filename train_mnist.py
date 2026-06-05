@@ -8,7 +8,7 @@ from NimbleML.core import forward, parameters
 from NimbleML.data import load_mnist
 from NimbleML.layers import Dense
 from NimbleML.losses import CrossEntropyLoss
-from NimbleML.optimizers import SGDM
+from NimbleML.optimizers import NAG
 from NimbleML.utils.tensor import Tensor
 
 def batch_iter(images, labels, batch_size, shuffle=True):
@@ -71,7 +71,7 @@ def main():
     ]
 
     loss_fn = CrossEntropyLoss()
-    optim = SGDM(parameters(model), args.lr, args.momentum)
+    optim = NAG(parameters(model), args.lr, args.momentum)
 
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0
