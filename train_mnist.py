@@ -7,13 +7,14 @@ from NimbleML.core import forward, parameters
 from NimbleML.data import load_mnist
 from NimbleML.layers import Dense
 from NimbleML.losses import CrossEntropyLoss
-from NimbleML.optimizers import NAG, SGD, SGDM
+from NimbleML.optimizers import NAG, RMSProp, SGD, SGDM
 from NimbleML.utils.tensor import Tensor
 
 OPTIMIZERS = {
     "sgd": SGD,
     "sgdm": SGDM,
     "nag": NAG,
+    "rmsprop": RMSProp,
 }
 
 def batch_iter(images, labels, batch_size, shuffle=True):
@@ -54,9 +55,11 @@ def main():
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--rho", type=float, default=0.9, help="RMSProp decay rate")
+    parser.add_argument("--epsilon", type=float, default=1e-8, help="RMSProp numerical stability term")
     parser.add_argument("--optimizer", choices=OPTIMIZERS, default="nag")
-    parser.add_argument("--train-limit", type=int, default=None)
-    parser.add_argument("--test-limit", type=int, default=None)
+    parser.add_argument("--train-limit", type=int, default=1000)
+    parser.add_argument("--test-limit", type=int, default=100)
     args = parser.parse_args()
 
     (train_images, train_labels), (test_images, test_labels) = load_mnist(args.data_dir)
@@ -79,11 +82,14 @@ def main():
     ]
 
     loss_fn = CrossEntropyLoss()
+    params = parameters(model)
     optim_cls = OPTIMIZERS[args.optimizer]
     if args.optimizer == "sgd":
-        optim = optim_cls(parameters(model), args.lr)
+        optim = optim_cls(params, args.lr)
+    elif args.optimizer == "rmsprop":
+        optim = optim_cls(params, args.lr, args.rho, args.epsilon)
     else:
-        optim = optim_cls(parameters(model), args.lr, args.momentum)
+        optim = optim_cls(params, args.lr, args.momentum)
 
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0
