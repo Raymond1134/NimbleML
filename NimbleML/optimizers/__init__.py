@@ -1,6 +1,6 @@
 from .optimizer import Optimizer
-from .sgd import SGD
-from .sgdm import SGDM
-from .nag import NAG
+from .NAG import NAG
+from .SGD import SGD
+from .SGDM import SGDM
 
 __all__ = ["Optimizer", "SGD", "SGDM", "NAG"]

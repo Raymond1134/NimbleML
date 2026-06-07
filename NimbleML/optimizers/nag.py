@@ -1,6 +1,5 @@
 # nag.py
 # Nesterov Accelerated Gradient
-from NimbleML.utils.tensor import Tensor
 from .optimizer import Optimizer
 
 class NAG(Optimizer):

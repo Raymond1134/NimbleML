@@ -1,6 +1,5 @@
 # sgdm.py
 # Stochastic Gradient Descent with Momentum
-from NimbleML.utils.tensor import Tensor
 from .optimizer import Optimizer
 
 class SGDM(Optimizer):
@@ -16,3 +15,4 @@ class SGDM(Optimizer):
                 continue
             self.velocities[i] = [self.momentum * vel + grad for vel, grad in zip(self.velocities[i], param.grad)]
             param.data = [val - self.learning_rate * vel for val, vel in zip(param.data, self.velocities[i])]
+            

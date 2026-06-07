@@ -50,13 +50,13 @@ def accuracy(model, images, labels, batch_size):
 def main():
     parser = argparse.ArgumentParser(description="Train a tiny MNIST MLP.")
     parser.add_argument("--data-dir", default=os.path.join("data", "mnist"))
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=0.025)
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--optimizer", choices=OPTIMIZERS, default="nag")
-    parser.add_argument("--train-limit", type=int, default=1000)
-    parser.add_argument("--test-limit", type=int, default=250)
+    parser.add_argument("--train-limit", type=int, default=None)
+    parser.add_argument("--test-limit", type=int, default=None)
     args = parser.parse_args()
 
     (train_images, train_labels), (test_images, test_labels) = load_mnist(args.data_dir)
@@ -69,11 +69,13 @@ def main():
         test_labels = test_labels[:args.test_limit]
 
     model = [
-        Dense(784, 256),
+        Dense(784, 512),
         Relu(),
-        Dense(256, 64),
+        Dense(512, 256),
         Relu(),
-        Dense(64, 10),
+        Dense(256, 128),
+        Relu(),
+        Dense(128, 10),
     ]
 
     loss_fn = CrossEntropyLoss()
@@ -96,7 +98,6 @@ def main():
             total_loss += loss.item()
             batches += 1
 
-        acc = accuracy(model, test_images, test_labels, args.batch_size)
         avg_loss = total_loss / max(1, batches)
 
         train_acc = accuracy(
