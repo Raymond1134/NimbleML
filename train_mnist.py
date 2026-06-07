@@ -7,7 +7,7 @@ from NimbleML.core import forward, parameters
 from NimbleML.data import load_mnist
 from NimbleML.layers import Dense
 from NimbleML.losses import CrossEntropyLoss
-from NimbleML.optimizers import NAG, RMSProp, SGD, SGDM
+from NimbleML.optimizers import NAG, RMSProp, SGD, SGDM, Adam
 from NimbleML.utils.tensor import Tensor
 
 OPTIMIZERS = {
@@ -15,6 +15,7 @@ OPTIMIZERS = {
     "sgdm": SGDM,
     "nag": NAG,
     "rmsprop": RMSProp,
+    "adam": Adam,
 }
 
 def batch_iter(images, labels, batch_size, shuffle=True):
@@ -51,12 +52,14 @@ def accuracy(model, images, labels, batch_size):
 def main():
     parser = argparse.ArgumentParser(description="Train a tiny MNIST MLP.")
     parser.add_argument("--data-dir", default=os.path.join("data", "mnist"))
-    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--rho", type=float, default=0.9, help="RMSProp decay rate")
-    parser.add_argument("--epsilon", type=float, default=1e-8, help="RMSProp numerical stability term")
+    parser.add_argument("--beta1", type=float, default=0.9, help="Adam first moment decay")
+    parser.add_argument("--beta2", type=float, default=0.999, help="Adam second moment decay")
+    parser.add_argument("--epsilon", type=float, default=1e-8, help="RMSProp/Adam numerical stability term")
     parser.add_argument("--optimizer", choices=OPTIMIZERS, default="nag")
     parser.add_argument("--train-limit", type=int, default=1000)
     parser.add_argument("--test-limit", type=int, default=100)
@@ -88,6 +91,8 @@ def main():
         optim = optim_cls(params, args.lr)
     elif args.optimizer == "rmsprop":
         optim = optim_cls(params, args.lr, args.rho, args.epsilon)
+    elif args.optimizer == "adam":
+        optim = optim_cls(params, args.lr, args.beta1, args.beta2, args.epsilon)
     else:
         optim = optim_cls(params, args.lr, args.momentum)
 
@@ -126,7 +131,6 @@ def main():
             f"train_acc={train_acc:.4f} "
             f"test_acc={test_acc:.4f}"
         )
-
 
 if __name__ == "__main__":
     main()
