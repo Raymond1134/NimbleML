@@ -3,9 +3,9 @@ import os
 import random
 
 from NimbleML.activations import Relu
-from NimbleML.core import forward, parameters
+from NimbleML.core import eval, forward, parameters, train
 from NimbleML.data import load_mnist
-from NimbleML.layers import Dense
+from NimbleML.layers import Dense, Dropout
 from NimbleML.losses import CrossEntropyLoss
 from NimbleML.optimizers import NAG, RMSProp, SGD, SGDM, Adam
 from NimbleML.utils.tensor import Tensor
@@ -61,6 +61,7 @@ def main():
     parser.add_argument("--beta2", type=float, default=0.999, help="Adam second moment decay")
     parser.add_argument("--epsilon", type=float, default=1e-8, help="RMSProp/Adam numerical stability term")
     parser.add_argument("--optimizer", choices=OPTIMIZERS, default="nag")
+    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout probability (0 to disable)")
     parser.add_argument("--train-limit", type=int, default=1000)
     parser.add_argument("--test-limit", type=int, default=100)
     args = parser.parse_args()
@@ -77,10 +78,13 @@ def main():
     model = [
         Dense(784, 512),
         Relu(),
+        Dropout(args.dropout),
         Dense(512, 256),
         Relu(),
+        Dropout(args.dropout),
         Dense(256, 128),
         Relu(),
+        Dropout(args.dropout),
         Dense(128, 10),
     ]
 
@@ -96,6 +100,7 @@ def main():
     else:
         optim = optim_cls(params, args.lr, args.momentum)
 
+    train(model)
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0
         batches = 0
@@ -111,6 +116,7 @@ def main():
 
         avg_loss = total_loss / max(1, batches)
 
+        eval(model)
         train_acc = accuracy(
             model,
             train_images,
@@ -131,6 +137,7 @@ def main():
             f"train_acc={train_acc:.4f} "
             f"test_acc={test_acc:.4f}"
         )
+        train(model)
 
 if __name__ == "__main__":
     main()
