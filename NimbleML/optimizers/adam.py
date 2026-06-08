@@ -1,5 +1,7 @@
 # adam.py
 # Adaptive Moment Estimation (Adam) optimizer
+import numpy as np
+
 from .optimizer import Optimizer
 
 class Adam(Optimizer):
@@ -9,8 +11,8 @@ class Adam(Optimizer):
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
-        self.m = [[0.0] * param.size for param in self.params]
-        self.v = [[0.0] * param.size for param in self.params]
+        self.m = [np.zeros(param.size, dtype=np.float64) for param in self.params]
+        self.v = [np.zeros(param.size, dtype=np.float64) for param in self.params]
         self.t = 0
 
     def step(self):
@@ -20,9 +22,9 @@ class Adam(Optimizer):
         for i, param in enumerate(self.params):
             if param.grad is None:
                 continue
-            grad = param.grad
-            self.m[i] = [self.beta1 * m + (1 - self.beta1) * g for m, g in zip(self.m[i], grad)]
-            self.v[i] = [self.beta2 * v + (1 - self.beta2) * g * g for v, g in zip(self.v[i], grad)]
-            m_hat = [m / bias_corr1 for m in self.m[i]]
-            v_hat = [v / bias_corr2 for v in self.v[i]]
-            param.data = [val - self.learning_rate * mh / (vh ** 0.5 + self.epsilon) for val, mh, vh in zip(param.data, m_hat, v_hat)]
+            grad = np.asarray(param.grad, dtype=np.float64)
+            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
+            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * grad * grad
+            m_hat = self.m[i] / bias_corr1
+            v_hat = self.v[i] / bias_corr2
+            param.data = np.asarray(param.data, dtype=np.float64) - self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)

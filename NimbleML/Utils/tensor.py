@@ -4,6 +4,10 @@ from math import prod
 import numpy as np
 
 class Tensor:
+    @staticmethod
+    def _asarray(data):
+        return np.asarray(data, dtype=np.float64)
+
     def __init__(self, data, shape, requires_grad=False, _children=(), _op=""):
         if isinstance(data, (int, float)):
             data = np.array([float(data)], dtype=np.float64)
@@ -15,13 +19,13 @@ class Tensor:
         self._prev = set(_children)
         self._op = _op
         self._validate()
-        self.strides = Tensor._compute_strides(self.shape)
 
     def __repr__(self):
         return f"Tensor(shape={self.shape}, data={self.data})"
 
     def __getitem__(self, indices):
-        return self.data[self._flat_index(indices)]
+        arr = Tensor._asarray(self.data).reshape(self.shape) if self.shape else Tensor._asarray(self.data).reshape(())
+        return float(arr[indices])
 
     @property
     def ndim(self):
@@ -88,7 +92,7 @@ class Tensor:
     def __add__(self, other):
         return self._apply_binary(
             other,
-            lambda a, b: a + b,
+            np.add,
             lambda grad, a, b: grad,
             lambda grad, a, b: grad,
             "add",
@@ -100,7 +104,7 @@ class Tensor:
     def __sub__(self, other):
         return self._apply_binary(
             other,
-            lambda a, b: a - b,
+            np.subtract,
             lambda grad, a, b: grad,
             lambda grad, a, b: -grad,
             "sub",
@@ -112,7 +116,7 @@ class Tensor:
     def __mul__(self, other):
         return self._apply_binary(
             other,
-            lambda a, b: a * b,
+            np.multiply,
             lambda grad, a, b: grad * b,
             lambda grad, a, b: grad * a,
             "mul",
@@ -124,9 +128,9 @@ class Tensor:
     def __truediv__(self, other):
         return self._apply_binary(
             other,
-            lambda a, b: a / b,
+            np.divide,
             lambda grad, a, b: grad / b,
-            lambda grad, a, b: -(grad*a) / (b*b),
+            lambda grad, a, b: -(grad * a) / (b * b),
             "div",
         )
 
@@ -141,45 +145,45 @@ class Tensor:
         a = self
         b = other
         out_shape, shape_a, shape_b = self._broadcast_shape(a.shape, b.shape)
-        out_data = []
-        
-        for out_idx in Tensor._iter_indices(out_shape):
-            a_idx_aligned = Tensor._broadcast_index(out_idx, shape_a)
-            b_idx_aligned = Tensor._broadcast_index(out_idx, shape_b)
-            a_idx = a_idx_aligned[-len(a.shape):] if a.shape else ()
-            b_idx = b_idx_aligned[-len(b.shape):] if b.shape else ()
-            out_data.append(op(a.data[a._flat_index(a_idx)], b.data[b._flat_index(b_idx)]))
-        
+        a_np = Tensor._asarray(a.data).reshape(shape_a)
+        b_np = Tensor._asarray(b.data).reshape(shape_b)
+        out_data = op(a_np, b_np).ravel()
+
         out = Tensor(out_data, out_shape, requires_grad=a.requires_grad or b.requires_grad, _children=(a, b), _op=op_name)
-        
+
         def _backward():
             if out.grad is None:
                 return
-            grad_out = out.grad
-            
-            grad_a = [0.0] * a.size
-            grad_b = [0.0] * b.size
-            
-            for out_idx in Tensor._iter_indices(out_shape):
-                a_idx_aligned = Tensor._broadcast_index(out_idx, shape_a)
-                b_idx_aligned = Tensor._broadcast_index(out_idx, shape_b)
-                a_idx = a_idx_aligned[-len(a.shape):] if a.shape else ()
-                b_idx = b_idx_aligned[-len(b.shape):] if b.shape else ()    
-                out_flat = out._flat_index(out_idx)
-                a_flat = a._flat_index(a_idx)
-                b_flat = b._flat_index(b_idx)
-                
-                grad = grad_out[out_flat]
-                grad_a[a_flat] += grad_a_rule(grad, a.data[a_flat], b.data[b_flat])
-                grad_b[b_flat] += grad_b_rule(grad, a.data[a_flat], b.data[b_flat])
-
+            grad_out = out.grad.reshape(out_shape)
+            grad_a = grad_a_rule(grad_out, a_np, b_np)
+            grad_b = grad_b_rule(grad_out, a_np, b_np)
             if a.requires_grad:
-                a._accumulate_grad(grad_a)
+                a._accumulate_grad(Tensor._reduce_broadcast_grad(grad_a, a.shape))
             if b.requires_grad:
-                b._accumulate_grad(grad_b)
+                b._accumulate_grad(Tensor._reduce_broadcast_grad(grad_b, b.shape))
 
         out._backward = _backward
         return out
+
+    @staticmethod
+    def _reduce_broadcast_grad(grad, shape):
+        grad = np.asarray(grad, dtype=np.float64)
+        if grad.ndim == 0:
+            return np.array([grad.item()], dtype=np.float64)
+
+        ndim = grad.ndim
+        target_ndim = len(shape)
+        padded = Tensor._pad_shape(shape, ndim)
+        axes = tuple(i for i, (dim, target) in enumerate(zip(grad.shape, padded)) if target == 1 and dim != 1)
+
+        if axes:
+            grad = np.sum(grad, axis=axes, keepdims=True)
+
+        leading = ndim - target_ndim
+        if leading > 0:
+            grad = np.sum(grad, axis=tuple(range(leading)))
+
+        return grad.reshape(-1)
     
     @staticmethod
     def _pad_shape(shape, target_ndim):
@@ -202,33 +206,6 @@ class Tensor:
 
         return tuple(out), shape_a, shape_b
 
-    @staticmethod
-    def _iter_indices(shape):
-        if len(shape) == 0:
-            yield ()
-            return;
-        
-        def iter(prefix, dim):
-            if dim == len(shape):
-                yield tuple(prefix)
-                return
-            for i in range(shape[dim]):
-                prefix.append(i)
-                yield from iter(prefix, dim + 1)
-                prefix.pop()
-        
-        yield from iter([], 0)
-    
-    @staticmethod
-    def _broadcast_index(out_idx, in_shape):
-        indices = []
-        for axis, dim in enumerate(in_shape):
-            if dim == 1:
-                indices.append(0)
-            else:
-                indices.append(out_idx[axis])
-        return tuple(indices)
-
     def matmul(self, other):
         other = self._ensure_tensor(other)
         if self.ndim != 2 or other.ndim != 2:
@@ -238,26 +215,22 @@ class Tensor:
 
         rows, inner = self.shape
         _, cols = other.shape
-        left = np.array(self.data, dtype=float).reshape(self.shape)
-        right = np.array(other.data, dtype=float).reshape(other.shape)
-        out_data = (left @ right).reshape(-1).tolist()
+        left = Tensor._asarray(self.data).reshape(self.shape)
+        right = Tensor._asarray(other.data).reshape(other.shape)
+        out_data = (left @ right).ravel()
 
         out = Tensor(out_data, (rows, cols), requires_grad=self.requires_grad or other.requires_grad, _children=(self, other), _op="matmul")
 
         def _backward():
             if out.grad is None:
                 return
-            grad_out = out.grad
-
-            grad_out_arr = np.array(grad_out, dtype=float).reshape(rows, cols)
+            grad_out_arr = Tensor._asarray(out.grad).reshape(rows, cols)
             if self.requires_grad:
-                other_arr = np.array(other.data, dtype=float).reshape(other.shape)
-                grad_self = grad_out_arr @ other_arr.T
-                self._accumulate_grad(grad_self.reshape(-1).tolist())
+                other_arr = Tensor._asarray(other.data).reshape(other.shape)
+                self._accumulate_grad((grad_out_arr @ other_arr.T).ravel())
             if other.requires_grad:
-                self_arr = np.array(self.data, dtype=float).reshape(self.shape)
-                grad_other = self_arr.T @ grad_out_arr
-                other._accumulate_grad(grad_other.reshape(-1).tolist())
+                self_arr = Tensor._asarray(self.data).reshape(self.shape)
+                other._accumulate_grad((self_arr.T @ grad_out_arr).ravel())
 
         out._backward = _backward
         return out
@@ -278,7 +251,7 @@ class Tensor:
 
     def sum(self, axis=None, keepdims=False):
         if axis is None:
-            reduce_axes = set(range(self.ndim))
+            reduce_axes = None
         else:
             if isinstance(axis, int):
                 axis = (axis,)
@@ -291,53 +264,21 @@ class Tensor:
             for ax in axis:
                 if ax < 0 or ax >= self.ndim:
                     raise ValueError(f"axis {ax} out of range for ndim {self.ndim}")
-            reduce_axes = set(axis)
+            reduce_axes = axis
 
-        if self.ndim == 0:
-            out_shape = ()
-        else:
-            out_shape_list = []
-            for i, dim in enumerate(self.shape):
-                if i in reduce_axes:
-                    if keepdims:
-                        out_shape_list.append(1)
-                else:
-                    out_shape_list.append(dim)
-            out_shape = tuple(out_shape_list) if out_shape_list else ()
-
-        out_size = prod(out_shape) if out_shape else 1
-        out_data = [0.0] * out_size
-        out_strides = Tensor._compute_strides(out_shape)
-
-        for in_idx in Tensor._iter_indices(self.shape):
-            in_flat = self._flat_index(in_idx)
-            if self.ndim == 0:
-                out_idx = ()
-            else:
-                if keepdims:
-                    out_idx = tuple(0 if i in reduce_axes else in_idx[i] for i in range(self.ndim))
-                else:
-                    out_idx = tuple(in_idx[i] for i in range(self.ndim) if i not in reduce_axes)
-            out_flat = Tensor._flat_index_from(out_idx, out_strides)
-            out_data[out_flat] += self.data[in_flat]
-
-        out = Tensor(out_data, out_shape, requires_grad=self.requires_grad, _children=(self,), _op="sum")
+        arr = self.data.reshape(self.shape) if self.shape else self.data.reshape(())
+        out_arr = np.sum(arr, axis=reduce_axes, keepdims=keepdims)
+        out_shape = out_arr.shape
+        out = Tensor(out_arr.ravel(), out_shape, requires_grad=self.requires_grad, _children=(self,), _op="sum")
 
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            grad_in = [0.0] * self.size
-            for in_idx in Tensor._iter_indices(self.shape):
-                in_flat = self._flat_index(in_idx)
-                if self.ndim == 0:
-                    out_idx = ()
-                else:
-                    if keepdims:
-                        out_idx = tuple(0 if i in reduce_axes else in_idx[i] for i in range(self.ndim))
-                    else:
-                        out_idx = tuple(in_idx[i] for i in range(self.ndim) if i not in reduce_axes)
-                out_flat = Tensor._flat_index_from(out_idx, out_strides)
-                grad_in[in_flat] += out.grad[out_flat]
+            if self.ndim == 0:
+                self._accumulate_grad(out.grad.reshape(1))
+                return
+            grad_out = out.grad.reshape(out_shape)
+            grad_in = np.broadcast_to(grad_out, self.shape).ravel()
             self._accumulate_grad(grad_in)
 
         out._backward = _backward
@@ -470,23 +411,3 @@ class Tensor:
                 src_i += 1
 
         return self.reshape(tuple(new_shape))
-    
-    @staticmethod
-    def _compute_strides(shape):
-        strides = []
-        current_stride = 1
-        for dim in reversed(shape):
-            strides.insert(0, current_stride)
-            current_stride *= dim
-        return tuple(strides)
-
-    @staticmethod
-    def _flat_index_from(indices, strides):
-        if not indices:
-            return 0
-        if not isinstance(indices, tuple):
-            indices = (indices,)
-        return sum(idx * stride for idx, stride in zip(indices, strides))
-
-    def _flat_index(self, indices):
-        return Tensor._flat_index_from(indices, self.strides)

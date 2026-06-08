@@ -1,5 +1,7 @@
 # sgd.py
 # Stochastic Gradient Descent
+import numpy as np
+
 from .optimizer import Optimizer
 
 class SGD(Optimizer):
@@ -11,4 +13,4 @@ class SGD(Optimizer):
         for param in self.params:
             if param.grad is None:
                 continue
-            param.data = [val - self.learning_rate * grad for val, grad in zip(param.data, param.grad)]
+            param.data -= self.learning_rate * np.asarray(param.grad, dtype=np.float64)

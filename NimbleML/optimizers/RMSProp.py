@@ -1,5 +1,7 @@
 # RMSProp.py
 # Root Mean Square Propagation
+import numpy as np
+
 from .optimizer import Optimizer
 
 class RMSProp(Optimizer):
@@ -8,15 +10,12 @@ class RMSProp(Optimizer):
         self.learning_rate = learning_rate
         self.rho = rho
         self.epsilon = epsilon
-        self.sq_grad_avg = [[0.0] * param.size for param in self.params]
+        self.sq_grad_avg = [np.zeros(param.size, dtype=np.float64) for param in self.params]
 
     def step(self):
         for i, param in enumerate(self.params):
             if param.grad is None:
                 continue
-            self.sq_grad_avg[i] = [self.rho * avg + (1 - self.rho) * grad**2 for avg, grad in zip(self.sq_grad_avg[i], param.grad)]
-
-            param.data = [
-                val - self.learning_rate * grad / (avg ** 0.5 + self.epsilon)
-                for val, grad, avg in zip(param.data, param.grad, self.sq_grad_avg[i])
-            ]
+            grad = np.asarray(param.grad, dtype=np.float64)
+            self.sq_grad_avg[i] = self.rho * self.sq_grad_avg[i] + (1 - self.rho) * grad * grad
+            param.data = np.asarray(param.data, dtype=np.float64) - self.learning_rate * grad / (np.sqrt(self.sq_grad_avg[i]) + self.epsilon)
