@@ -1,7 +1,7 @@
 # tensor.py
 # Minimal autograd tensor for 1D/2D workloads.
 from math import prod
-import numpy as np
+from .np_backend import np
 
 class Tensor:
     @staticmethod
@@ -236,15 +236,15 @@ class Tensor:
         return out
 
     def relu(self):
-        out_data = [val if val > 0 else 0.0 for val in self.data]
+        arr = self.data
+        out_data = np.maximum(arr, 0.0)
         out = Tensor(out_data, self.shape, requires_grad=self.requires_grad, _children=(self,), _op="relu")
-        mask = [1.0 if val > 0 else 0.0 for val in self.data]
+        mask = (arr > 0).astype(np.float64)
 
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            grad = [g * m for g, m in zip(out.grad, mask)]
-            self._accumulate_grad(grad)
+            self._accumulate_grad(out.grad * mask)
 
         out._backward = _backward
         return out
@@ -313,21 +313,16 @@ class Tensor:
             raise ValueError("Transpose requires a 2D tensor.")
 
         rows, cols = self.shape
-        out_data = [0.0] * (rows * cols)
-        for i in range(rows):
-            for j in range(cols):
-                out_data[j * rows + i] = self.data[i * cols + j]
+        arr = self.data.reshape(self.shape)
+        out_data = arr.T.ravel()
 
         out = Tensor(out_data, (cols, rows), requires_grad=self.requires_grad, _children=(self,), _op="transpose")
 
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            grad = [0.0] * (rows * cols)
-            for i in range(rows):
-                for j in range(cols):
-                    grad[i * cols + j] = out.grad[j * rows + i]
-            self._accumulate_grad(grad)
+            grad_out = out.grad.reshape(cols, rows)
+            self._accumulate_grad(grad_out.T.ravel())
 
         out._backward = _backward
         return out

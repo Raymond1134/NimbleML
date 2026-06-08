@@ -1,6 +1,6 @@
 # adam.py
 # Adaptive Moment Estimation (Adam) optimizer
-import numpy as np
+from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
 

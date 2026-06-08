@@ -8,6 +8,7 @@ from NimbleML.data import load_mnist
 from NimbleML.layers import Dense, Dropout
 from NimbleML.losses import CrossEntropyLoss
 from NimbleML.optimizers import NAG, RMSProp, SGD, SGDM, Adam
+from NimbleML.utils.np_backend import device, np
 from NimbleML.utils.tensor import Tensor
 
 OPTIMIZERS = {
@@ -42,7 +43,7 @@ def accuracy(model, images, labels, batch_size):
 
         for i in range(batch):
             row = data[i * classes:(i + 1) * classes]
-            pred = max(range(classes), key=lambda j: row[j])
+            pred = int(np.argmax(row))
             if pred == y[i]:
                 correct += 1
             total += 1
@@ -52,8 +53,8 @@ def accuracy(model, images, labels, batch_size):
 def main():
     parser = argparse.ArgumentParser(description="Train a tiny MNIST MLP.")
     parser.add_argument("--data-dir", default=os.path.join("data", "mnist"))
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--rho", type=float, default=0.9, help="RMSProp decay rate")
@@ -62,8 +63,8 @@ def main():
     parser.add_argument("--epsilon", type=float, default=1e-8, help="RMSProp/Adam numerical stability term")
     parser.add_argument("--optimizer", choices=OPTIMIZERS, default="nag")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout probability (0 to disable)")
-    parser.add_argument("--train-limit", type=int, default=500)
-    parser.add_argument("--test-limit", type=int, default=100)
+    parser.add_argument("--train-limit", type=int, default=None)
+    parser.add_argument("--test-limit", type=int, default=None)
     args = parser.parse_args()
 
     (train_images, train_labels), (test_images, test_labels) = load_mnist(args.data_dir)
@@ -101,6 +102,7 @@ def main():
         optim = optim_cls(params, args.lr, args.momentum)
 
     train(model)
+    print(f"Training on {device.upper()}")
     for epoch in range(1, args.epochs + 1):
         total_loss = 0.0
         batches = 0
