@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--epsilon", type=float, default=1e-8, help="RMSProp/Adam numerical stability term")
     parser.add_argument("--optimizer", choices=OPTIMIZERS, default="nag")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout probability (0 to disable)")
-    parser.add_argument("--train-limit", type=int, default=1000)
+    parser.add_argument("--train-limit", type=int, default=500)
     parser.add_argument("--test-limit", type=int, default=100)
     args = parser.parse_args()
 

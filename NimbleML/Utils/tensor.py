@@ -5,8 +5,9 @@ import numpy as np
 
 class Tensor:
     def __init__(self, data, shape, requires_grad=False, _children=(), _op=""):
-        if isinstance(data, (int, float)): data = [float(data)]
-        self.data = list(data)
+        if isinstance(data, (int, float)):
+            data = np.array([float(data)], dtype=np.float64)
+        self.data = np.asarray(data, dtype=np.float64).ravel()
         self.shape = shape
         self.requires_grad = requires_grad
         self.grad = None
@@ -37,20 +38,22 @@ class Tensor:
     def item(self):
         if self.size != 1:
             raise ValueError("Only scalar tensors can be converted to a Python scalar.")
-        return self.data[0]
+        return float(self.data[0])
 
     def zero_grad(self):
-        self.grad = [0.0] * self.size
+        self.grad = np.zeros(self.size, dtype=np.float64)
 
     def backward(self, grad=None):
         if grad is None:
             if self.size != 1:
                 raise ValueError("grad must be specified for non-scalar tensors.")
-            grad = [1.0]
+            grad = np.array([1.0], dtype=np.float64)
         elif isinstance(grad, (int, float)):
-            grad = [float(grad)]
+            grad = np.array([float(grad)], dtype=np.float64)
         elif isinstance(grad, Tensor):
             grad = grad.data
+        else:
+            grad = np.asarray(grad, dtype=np.float64)
 
         self._accumulate_grad(grad)
 
@@ -71,15 +74,16 @@ class Tensor:
     def _accumulate_grad(self, grad):
         if not self.requires_grad:
             return
+        grad = np.asarray(grad, dtype=np.float64)
         if self.grad is None:
-            self.grad = list(grad)
+            self.grad = np.array(grad, dtype=np.float64)
         else:
-            self.grad = [grad + dgrad for grad, dgrad in zip(self.grad, grad)]
+            self.grad += grad
 
     def _ensure_tensor(self, other):
         if isinstance(other, Tensor):
             return other
-        return Tensor([other], (), requires_grad=False)
+        return Tensor(np.array([other], dtype=np.float64), (), requires_grad=False)
 
     def __add__(self, other):
         return self._apply_binary(
