@@ -1,10 +1,48 @@
 # NimbleML
-A lightweight Python machine learning library for building and training simple models. NimbleML provides clean implementations of core ML concepts such as linear/logistic regression, basic neural networks, loss functions, gradient-based optimization, and more.
 
-## Quick start (MNIST)
-Run the minimal MNIST training script (downloads data to data/mnist):
+A lightweight Python machine learning library for building and training neural networks from scratch. NimbleML includes autograd tensors, common layers, losses, optimizers, and optional GPU support via CuPy.
+
+## Install
+
+CPU only:
 
 ```bash
 python -m pip install numpy
-python train_mnist.py --epochs 1 --train-limit 1000 --test-limit 200
 ```
+
+GPU (NVIDIA CUDA, optional — auto-detected when available):
+
+```bash
+python -m pip install numpy cupy-cuda11x
+```
+
+Or install from the project root:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Force CPU or GPU with the environment variable `NIMBLEML_DEVICE=cpu` or `NIMBLEML_DEVICE=gpu`.
+
+## What's included
+
+**Layers:** `Dense`, `Conv2D`, `MaxPool2D`, `Flatten`, `Dropout`
+
+**Activations:** `Relu`, `Softmax`
+
+**Losses:** `CrossEntropyLoss`
+
+**Optimizers:** `SGD`, `SGDM`, `NAG`, `RMSProp`, `Adam`
+
+**Core:** `Tensor` (autograd), `forward`, `parameters`, `train` / `eval` mode helpers, NumPy/CuPy backend
+
+## Tests
+
+```bash
+python test.py
+```
+
+## Project layout
+
+- `NimbleML/` — library source
+- `test.py` — unit tests
