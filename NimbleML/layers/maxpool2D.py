@@ -44,7 +44,15 @@ def _scatter_patch_grads(patch_grads, meta):
 
     return x_grad
 
-class MaxPool2d:
+
+def _scatter_grad_to_argmax(patches_flat, argmax, grad_out):
+    """Route output gradients to the max positions in each pool window."""
+    window_size = patches_flat.shape[-1]
+    mask = argmax[..., np.newaxis] == np.arange(window_size, dtype=argmax.dtype)
+    return mask.astype(np.float64) * grad_out[..., np.newaxis]
+
+
+class MaxPool2D:
     def __init__(self, kernel_size, stride=None):
         self.kernel_size = kernel_size
         self.stride = stride if stride is not None else kernel_size
@@ -69,8 +77,7 @@ class MaxPool2d:
                 return
 
             grad_out = output.grad.reshape(N, C, out_H, out_W)
-            grad_patches_flat = np.zeros_like(patches_flat)
-            np.put_along_axis(grad_patches_flat, argmax[..., np.newaxis], grad_out[..., np.newaxis], axis=4)
+            grad_patches_flat = _scatter_grad_to_argmax(patches_flat, argmax, grad_out)
             grad_patches = grad_patches_flat.reshape(N, C, out_H, out_W, kH, kW)
             grad_x = _scatter_patch_grads(grad_patches, meta)
             inputs._accumulate_grad(grad_x.ravel())

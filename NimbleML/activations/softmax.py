@@ -1,29 +1,42 @@
 # softmax.py
 # Softmax activation function (supports 1D or 2D tensors)
-from math import exp
+from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
 class Softmax:
     def forward(self, input):
         if input.ndim == 1:
-            max_val = max(input.data)
-            exps = [exp(value - max_val) for value in input.data]
-            total = sum(exps)
-            output = [e / total for e in exps]
-            return Tensor(output, input.shape)
-
-        if input.ndim != 2:
+            logits = input.data.reshape(1, input.shape[0])
+            batch_size = 1
+            class_count = input.shape[0]
+            out_shape = input.shape
+        elif input.ndim == 2:
+            batch_size, class_count = input.shape
+            logits = input.data.reshape(input.shape)
+            out_shape = input.shape
+        else:
             raise ValueError("Softmax expects a 1D or 2D tensor.")
 
-        batch, classes = input.shape
-        output = []
-        data = input.data
-        for i in range(batch):
-            row = data[i * classes:(i + 1) * classes]
-            max_val = max(row)
-            exps = [exp(value - max_val) for value in row]
-            total = sum(exps)
-            output.extend([e / total for e in exps])
+        max_vals = np.max(logits, axis=1, keepdims=True)
+        exps = np.exp(logits - max_vals)
+        probs = exps / np.sum(exps, axis=1, keepdims=True)
 
-        return Tensor(output, input.shape)
+        output = Tensor(
+            probs.ravel(),
+            out_shape,
+            requires_grad=input.requires_grad,
+            _children=(input,),
+            _op="softmax",
+        )
+
+        def _backward():
+            if output.grad is None or not input.requires_grad:
+                return
+            grad_out = output.grad.reshape(batch_size, class_count)
+            dot = np.sum(grad_out * probs, axis=1, keepdims=True)
+            grad_in = probs * (grad_out - dot)
+            input._accumulate_grad(grad_in.ravel())
+
+        output._backward = _backward
+        return output

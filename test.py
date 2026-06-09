@@ -1,6 +1,6 @@
 from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.flatten import Flatten
-from NimbleML.layers.maxpool2d import MaxPool2d
+from NimbleML.layers import MaxPool2D
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
@@ -92,7 +92,7 @@ def test_conv2d_backward():
 
 
 def test_maxpool2d_forward():
-	layer = MaxPool2d(kernel_size=2, stride=2)
+	layer = MaxPool2D(kernel_size=2, stride=2)
 	x = Tensor(np.arange(1, 17, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
 	out = layer.forward(x)
 	assert out.shape == (1, 1, 2, 2)
@@ -100,7 +100,7 @@ def test_maxpool2d_forward():
 
 
 def test_maxpool2d_backward():
-	layer = MaxPool2d(kernel_size=2, stride=2)
+	layer = MaxPool2D(kernel_size=2, stride=2)
 	x = Tensor(np.arange(1, 17, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
 	out = layer.forward(x)
 	loss = out.sum()
