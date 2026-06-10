@@ -1,6 +1,8 @@
 from NimbleML.layers.conv2D import Conv2D, _im2col
+from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
 from NimbleML.layers import MaxPool2D
+from NimbleML.utils.gradcheck import gradcheck
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
@@ -120,6 +122,49 @@ def test_flatten():
 	_assert_list_close("flatten grad", np.asarray(x.grad), np.ones(24))
 
 
+def test_gradcheck_dense():
+	layer = Dense(2, 1)
+	layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
+	layer.biases.data = np.array([0.1], dtype=np.float64)
+	x = Tensor([1.0, 2.0], (1, 2), requires_grad=True)
+	tensors = [x, layer.weights, layer.biases]
+
+	def fn():
+		for t in tensors:
+			t.grad = None
+		return layer.forward(x).sum()
+
+	gradcheck(fn, tensors)
+
+
+def test_gradcheck_conv2d():
+	layer = Conv2D(1, 1, kernel_size=3, stride=1, padding=0, bias=True)
+	layer.weights.data = np.linspace(0.1, 0.9, 9, dtype=np.float64)
+	layer.biases.data = np.array([0.05], dtype=np.float64)
+	x = Tensor(np.linspace(1, 16, 16, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
+	tensors = [x, layer.weights, layer.biases]
+
+	def fn():
+		for t in tensors:
+			t.grad = None
+		return layer.forward(x).sum()
+
+	gradcheck(fn, tensors)
+
+
+def test_gradcheck_maxpool2d():
+	layer = MaxPool2D(kernel_size=2, stride=2)
+	x = Tensor(np.arange(1, 17, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
+	tensors = [x]
+
+	def fn():
+		for t in tensors:
+			t.grad = None
+		return layer.forward(x).sum()
+
+	gradcheck(fn, tensors)
+
+
 def main():
 	test_forward_broadcasting()
 	test_backward_broadcasting()
@@ -129,6 +174,9 @@ def main():
 	test_maxpool2d_forward()
 	test_maxpool2d_backward()
 	test_flatten()
+	test_gradcheck_dense()
+	test_gradcheck_conv2d()
+	test_gradcheck_maxpool2d()
 	print("All tests passed.")
 
 
