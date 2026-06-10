@@ -28,3 +28,9 @@ class Dropout(Module):
 
         out._backward = _backward
         return out
+    
+    def train(self):
+        self.training = True
+
+    def eval(self):
+        self.training = False
