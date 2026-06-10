@@ -2,8 +2,9 @@
 # Flatten layer: (N, C, H, W) -> (N, C*H*W)
 from math import prod
 from NimbleML.utils.tensor import Tensor
+from NimbleML.neural_network import Module
 
-class Flatten:
+class Flatten(Module):
     def forward(self, inputs):
         if inputs.ndim < 2:
             raise ValueError("Flatten expects input with at least 2 dimensions (batch, ...).")

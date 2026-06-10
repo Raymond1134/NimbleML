@@ -3,8 +3,9 @@
 from math import sqrt
 from random import uniform
 from NimbleML.utils.tensor import Tensor
+from NimbleML.neural_network import Module
 
-class Dense:
+class Dense(Module):
     def __init__(self, in_features, out_features, bias=True, weight_scale=None):
         self.in_features = in_features
         self.out_features = out_features

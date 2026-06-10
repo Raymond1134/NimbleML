@@ -1,9 +1,9 @@
 # conv2D.py
 # 2D Convolutional Layer
 from math import sqrt
-
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
+from NimbleML.neural_network import Module
 
 
 def _kernel_dims(kernel_size):
@@ -78,7 +78,7 @@ def _col2im(cols, meta):
 
     return x_grad.reshape(N, C, H, W)
 
-class Conv2D:
+class Conv2D(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):
         self.in_channels = in_channels
         self.out_channels = out_channels

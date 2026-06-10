@@ -2,6 +2,7 @@
 # 2D max pooling layer
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
+from NimbleML.neural_network import Module
 
 def _kernel_dims(kernel_size):
     if isinstance(kernel_size, int):
@@ -52,7 +53,7 @@ def _scatter_grad_to_argmax(patches_flat, argmax, grad_out):
     return mask.astype(np.float64) * grad_out[..., np.newaxis]
 
 
-class MaxPool2D:
+class MaxPool2D(Module):
     def __init__(self, kernel_size, stride=None):
         self.kernel_size = kernel_size
         self.stride = stride if stride is not None else kernel_size

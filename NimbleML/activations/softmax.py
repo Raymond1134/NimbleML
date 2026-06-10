@@ -2,9 +2,9 @@
 # Softmax activation function (supports 1D or 2D tensors)
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
+from NimbleML.neural_network import Module
 
-
-class Softmax:
+class Softmax(Module):
     def forward(self, input):
         if input.ndim == 1:
             logits = input.data.reshape(1, input.shape[0])

@@ -2,8 +2,9 @@
 # Dropout regularization layer
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
+from NimbleML.neural_network import Module
 
-class Dropout:
+class Dropout(Module):
     def __init__(self, probability=0.5):
         if not 0 <= probability < 1:
             raise ValueError("Dropout probability must be in [0, 1).")
