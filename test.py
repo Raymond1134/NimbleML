@@ -1,7 +1,7 @@
 from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
-from NimbleML.layers import MaxPool2D
+from NimbleML.layers import Embedding, MaxPool2D
 from NimbleML.utils.gradcheck import gradcheck
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
@@ -122,6 +122,26 @@ def test_flatten():
 	_assert_list_close("flatten grad", np.asarray(x.grad), np.ones(24))
 
 
+def test_embedding_forward_shape():
+	layer = Embedding(vocab_size=10, embed_dim=4)
+	layer.weights.data = np.arange(40, dtype=np.float64)
+	ids = [[0, 2, 5], [1, 3, 9]]
+	out = layer.forward(ids)
+	assert out.shape == (2, 3, 4), f"expected (2, 3, 4), got {out.shape}"
+	_assert_list_close("embedding row (0,0)", np.asarray(out.data.reshape(2, 3, 4)[0, 0]), [0, 1, 2, 3])
+	_assert_list_close("embedding row (1,2)", np.asarray(out.data.reshape(2, 3, 4)[1, 2]), [36, 37, 38, 39])
+
+
+def test_embedding_backward():
+	layer = Embedding(vocab_size=10, embed_dim=4)
+	ids = [[0, 2, 2], [1, 3, 0]]
+	out = layer.forward(ids)
+	loss = out.sum()
+	loss.backward()
+	assert layer.weights.grad is not None
+	assert len(layer.weights.grad) == 40
+
+
 def test_gradcheck_dense():
 	layer = Dense(2, 1)
 	layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -174,6 +194,8 @@ def main():
 	test_maxpool2d_forward()
 	test_maxpool2d_backward()
 	test_flatten()
+	test_embedding_forward_shape()
+	test_embedding_backward()
 	test_gradcheck_dense()
 	test_gradcheck_conv2d()
 	test_gradcheck_maxpool2d()
