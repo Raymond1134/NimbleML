@@ -1,21 +1,34 @@
 def forward(model, data):
+    if not isinstance(model, list):
+        return model(data)
     for layer in model:
-        data = layer.forward(data)
+        data = layer(data)
     return data
 
+
 def parameters(model):
+    if not isinstance(model, list):
+        return model.parameters()
     params = []
     for layer in model:
         if hasattr(layer, "parameters"):
             params.extend(layer.parameters())
     return params
 
+
 def train(model):
+    if not isinstance(model, list):
+        model.train()
+        return
     for layer in model:
-        if hasattr(layer, "training"):
-            layer.training = True
+        if hasattr(layer, "train"):
+            layer.train()
+
 
 def eval(model):
+    if not isinstance(model, list):
+        model.eval()
+        return
     for layer in model:
-        if hasattr(layer, "training"):
-            layer.training = False
+        if hasattr(layer, "eval"):
+            layer.eval()

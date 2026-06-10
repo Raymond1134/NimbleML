@@ -19,7 +19,10 @@ class Module:
 
 class Sequential(Module):
     def __init__(self, *layers):
-        self.layers = layers
+        self.layers = list(layers)
+
+    def __iter__(self):
+        return iter(self.layers)
     
     def forward(self, data):
         for layer in self.layers:

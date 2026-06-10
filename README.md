@@ -34,7 +34,7 @@ Force CPU or GPU with the environment variable `NIMBLEML_DEVICE=cpu` or `NIMBLEM
 
 **Optimizers:** `SGD`, `SGDM`, `NAG`, `RMSProp`, `Adam`
 
-**Core:** `Tensor` (autograd), `forward`, `parameters`, `train` / `eval` mode helpers, NumPy/CuPy backend
+**Core:** `Tensor` (autograd), `Module`, `Sequential`, `forward`, `parameters`, `train` / `eval`, NumPy/CuPy backend (`device`, `using_gpu`, `set_device`)
 
 ## Tests
 
