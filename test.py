@@ -1,7 +1,7 @@
 from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
-from NimbleML.layers import Embedding, MaxPool2D
+from NimbleML.layers import Embedding, LayerNorm, MaxPool2D
 from NimbleML.utils.gradcheck import gradcheck
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
@@ -142,6 +142,29 @@ def test_embedding_backward():
     assert len(layer.weights.grad) == 40
 
 
+def test_layernorm_output_mean_approx_0():
+    layer = LayerNorm(4)
+    x = Tensor(np.linspace(-2, 2, 24, dtype=np.float64), (2, 3, 4), requires_grad=True)
+    out = layer.forward(x)
+    last_dim_means = np.mean(out.data.reshape(2, 3, 4), axis=-1)
+    assert np.allclose(last_dim_means, 0.0, atol=1e-5), f"expected ~0 means, got {last_dim_means}"
+
+
+def test_layernorm_backward():
+    layer = LayerNorm(4)
+    layer.gamma.data = np.linspace(0.5, 1.5, 4, dtype=np.float64)
+    layer.beta.data = np.linspace(-0.2, 0.2, 4, dtype=np.float64)
+    x = Tensor(np.linspace(-1, 1, 24, dtype=np.float64), (2, 3, 4), requires_grad=True)
+    tensors = [x, layer.gamma, layer.beta]
+
+    def fn():
+        for t in tensors:
+            t.grad = None
+        return layer.forward(x).sum()
+
+    gradcheck(fn, tensors)
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -196,6 +219,8 @@ def main():
     test_flatten()
     test_embedding_forward_shape()
     test_embedding_backward()
+    test_layernorm_output_mean_approx_0()
+    test_layernorm_backward()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()

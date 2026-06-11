@@ -137,6 +137,36 @@ class Tensor:
     def __rtruediv__(self, other):
         return self._ensure_tensor(other).__truediv__(self)
 
+    def __pow__(self, exponent):
+        if isinstance(exponent, Tensor):
+            raise NotImplementedError("Tensor ** Tensor is not supported yet.")
+        exponent = float(exponent)
+
+        shape = self.shape
+        a = Tensor._asarray(self.data).reshape(shape)
+        out_data = np.power(a, exponent)
+
+        out = Tensor(
+            out_data.ravel(),
+            shape,
+            requires_grad=self.requires_grad,
+            _children=(self,),
+            _op="pow",
+        )
+
+        def _backward():
+            if out.grad is None or not self.requires_grad:
+                return
+            grad_out = out.grad.reshape(shape)
+            grad_a = grad_out * exponent * np.power(a, exponent - 1.0)
+            self._accumulate_grad(grad_a.ravel())
+
+        out._backward = _backward
+        return out
+
+    def sqrt(self):
+        return self ** 0.5
+
     def __matmul__(self, other):
         return self.matmul(other)
 
