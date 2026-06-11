@@ -1,5 +1,5 @@
 # tensor.py
-# Minimal autograd tensor for 1D/2D workloads.
+# Autograd tensor with NumPy/CuPy backend
 from math import prod
 from .np_backend import np
 
@@ -38,7 +38,7 @@ class Tensor:
     @property
     def T(self):
         return self.transpose()
-    
+
     def item(self):
         if self.size != 1:
             raise ValueError("Only scalar tensors can be converted to a Python scalar.")

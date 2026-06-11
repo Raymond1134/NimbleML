@@ -11,18 +11,12 @@ from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
-def _randn(shape):
-    if isinstance(shape, int):
-        shape = (shape,)
-    return np.random.randn(*shape).astype(np.float64)
-
-
 def _scalar_value(value):
     if isinstance(value, Tensor):
         return value.item()
     return float(value)
 
-
+# Estimate d(fn)/d(tensor[index]) with central finite differences.
 def numerical_grad(fn, tensor, index=0, eps=1e-5):
     original = float(np.asarray(tensor.data, dtype=np.float64).ravel()[index])
 
@@ -36,6 +30,7 @@ def numerical_grad(fn, tensor, index=0, eps=1e-5):
     return (plus - minus) / (2 * eps)
 
 
+# Compare analytic gradients from backward() to numerical_grad.
 def gradcheck(fn, tensors, eps=1e-4, tol=1e-3):
     if not tensors:
         raise ValueError("gradcheck requires at least one tensor.")

@@ -1,15 +1,10 @@
 # conv2D.py
-# 2D Convolutional Layer
+# 2D convolutional layer
 from math import sqrt
+from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
-from NimbleML.neural_network import Module
-
-
-def _kernel_dims(kernel_size):
-    if isinstance(kernel_size, int):
-        return kernel_size, kernel_size
-    return kernel_size
+from ._ops import _kernel_dims
 
 
 def _im2col(x, kernel_size, stride=1, padding=0):
@@ -49,6 +44,7 @@ def _im2col(x, kernel_size, stride=1, padding=0):
     }
     return cols, meta
 
+
 def _col2im(cols, meta):
     """Scatter patch gradients back into (N, C, H, W) input layout."""
     N = meta["N"]
@@ -77,6 +73,7 @@ def _col2im(cols, meta):
         x_grad = x_grad[:, :, padding:padding + H, padding:padding + W]
 
     return x_grad.reshape(N, C, H, W)
+
 
 class Conv2D(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):

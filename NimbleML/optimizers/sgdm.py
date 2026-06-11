@@ -1,8 +1,9 @@
 # sgdm.py
-# Stochastic Gradient Descent with Momentum
+# SGD with momentum
 from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
+
 
 class SGDM(Optimizer):
     def __init__(self, params, learning_rate=0.01, momentum=0.9):

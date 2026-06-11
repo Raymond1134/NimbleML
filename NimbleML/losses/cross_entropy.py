@@ -1,6 +1,5 @@
 # cross_entropy.py
-# Cross-Entropy Loss function
-
+# Cross-entropy loss
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
@@ -33,7 +32,13 @@ class CrossEntropyLoss:
         correct_probs = probabilities[np.arange(batch_size), label_indices]
         loss = float(-np.sum(np.log(np.maximum(correct_probs, 1e-12))) / batch_size)
 
-        output = Tensor([loss], (), requires_grad=logits.requires_grad, _children=(logits,), _op="cross_entropy")
+        output = Tensor(
+            [loss],
+            (),
+            requires_grad=logits.requires_grad,
+            _children=(logits,),
+            _op="cross_entropy",
+        )
 
         def _backward():
             if not logits.requires_grad:

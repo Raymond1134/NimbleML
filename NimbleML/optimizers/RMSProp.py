@@ -1,8 +1,9 @@
 # RMSProp.py
-# Root Mean Square Propagation
+# RMSProp optimizer
 from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
+
 
 class RMSProp(Optimizer):
     def __init__(self, params, learning_rate=0.01, rho=0.9, epsilon=1e-8):

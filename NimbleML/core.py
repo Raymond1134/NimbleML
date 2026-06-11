@@ -1,3 +1,7 @@
+# core.py
+# Helpers for running models built as Module/Sequential or legacy layer lists
+
+
 def forward(model, data):
     if not isinstance(model, list):
         return model(data)

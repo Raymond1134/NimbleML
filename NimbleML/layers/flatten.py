@@ -1,8 +1,8 @@
 # flatten.py
 # Flatten layer: (N, C, H, W) -> (N, C*H*W)
 from math import prod
-from NimbleML.utils.tensor import Tensor
 from NimbleML.neural_network import Module
+
 
 class Flatten(Module):
     def forward(self, inputs):

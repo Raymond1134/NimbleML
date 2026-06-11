@@ -1,7 +1,8 @@
 # sgd.py
-# Stochastic Gradient Descent
+# Stochastic gradient descent
 from NimbleML.utils.np_backend import np
 from .optimizer import Optimizer
+
 
 class SGD(Optimizer):
     def __init__(self, params, learning_rate=0.01):

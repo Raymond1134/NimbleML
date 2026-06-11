@@ -1,20 +1,21 @@
 # softmax.py
-# Softmax activation function (supports 1D or 2D tensors)
+# Softmax activation (1D or 2D tensors)
+from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
-from NimbleML.neural_network import Module
+
 
 class Softmax(Module):
-    def forward(self, input):
-        if input.ndim == 1:
-            logits = input.data.reshape(1, input.shape[0])
+    def forward(self, inputs):
+        if inputs.ndim == 1:
+            logits = inputs.data.reshape(1, inputs.shape[0])
             batch_size = 1
-            class_count = input.shape[0]
-            out_shape = input.shape
-        elif input.ndim == 2:
-            batch_size, class_count = input.shape
-            logits = input.data.reshape(input.shape)
-            out_shape = input.shape
+            class_count = inputs.shape[0]
+            out_shape = inputs.shape
+        elif inputs.ndim == 2:
+            batch_size, class_count = inputs.shape
+            logits = inputs.data.reshape(inputs.shape)
+            out_shape = inputs.shape
         else:
             raise ValueError("Softmax expects a 1D or 2D tensor.")
 
@@ -25,18 +26,18 @@ class Softmax(Module):
         output = Tensor(
             probs.ravel(),
             out_shape,
-            requires_grad=input.requires_grad,
-            _children=(input,),
+            requires_grad=inputs.requires_grad,
+            _children=(inputs,),
             _op="softmax",
         )
 
         def _backward():
-            if output.grad is None or not input.requires_grad:
+            if output.grad is None or not inputs.requires_grad:
                 return
             grad_out = output.grad.reshape(batch_size, class_count)
             dot = np.sum(grad_out * probs, axis=1, keepdims=True)
             grad_in = probs * (grad_out - dot)
-            input._accumulate_grad(grad_in.ravel())
+            inputs._accumulate_grad(grad_in.ravel())
 
         output._backward = _backward
         return output

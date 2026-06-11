@@ -26,7 +26,7 @@ Force CPU or GPU with the environment variable `NIMBLEML_DEVICE=cpu` or `NIMBLEM
 
 ## What's included
 
-**Layers:** `Dense`, `Conv2D`, `MaxPool2D`, `Flatten`, `Dropout`
+**Layers:** `Dense`, `Conv2D`, `MaxPool2D`, `Flatten`, `Dropout`, `Embedding`
 
 **Activations:** `Relu`, `Softmax`
 

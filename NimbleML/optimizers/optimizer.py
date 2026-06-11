@@ -1,6 +1,7 @@
 # optimizer.py
 # Base class for optimizers
 
+
 class Optimizer:
     def __init__(self, params):
         self.params = list(params)

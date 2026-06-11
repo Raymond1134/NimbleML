@@ -1,16 +1,20 @@
 # embedding.py
-# Embedding layer
+# Embedding layer (token ID lookup table)
+from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
-from NimbleML.neural_network import Module
 
 
 class Embedding(Module):
     def __init__(self, vocab_size, embed_dim):
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
-        self.weights = Tensor(np.random.randn(vocab_size, embed_dim), (vocab_size, embed_dim), requires_grad=True)
-    
+        self.weights = Tensor(
+            np.random.randn(vocab_size, embed_dim),
+            (vocab_size, embed_dim),
+            requires_grad=True,
+        )
+
     def forward(self, inputs):
         ids = np.asarray(inputs, dtype=np.int64).reshape(-1)
         W = self.weights.data.reshape(self.vocab_size, self.embed_dim)

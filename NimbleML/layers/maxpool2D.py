@@ -1,13 +1,10 @@
 # maxpool2D.py
 # 2D max pooling layer
+from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
-from NimbleML.neural_network import Module
+from ._ops import _kernel_dims
 
-def _kernel_dims(kernel_size):
-    if isinstance(kernel_size, int):
-        return kernel_size, kernel_size
-    return kernel_size
 
 def _pool2d_windows(x, kernel_size, stride):
     kH, kW = _kernel_dims(kernel_size)
@@ -24,6 +21,7 @@ def _pool2d_windows(x, kernel_size, stride):
     patch_strides = (sN, sC, stride * sH, stride * sW, sH, sW)
     patches = as_strided(x, shape=patch_shape, strides=patch_strides)
     return patches, {"N": N, "C": C, "H": H, "W": W, "out_H": out_H, "out_W": out_W, "kH": kH, "kW": kW, "stride": stride}
+
 
 def _scatter_patch_grads(patch_grads, meta):
     N = meta["N"]

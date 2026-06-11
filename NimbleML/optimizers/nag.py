@@ -1,8 +1,9 @@
 # nag.py
-# Nesterov Accelerated Gradient
+# Nesterov accelerated gradient
 from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
+
 
 class NAG(Optimizer):
     def __init__(self, params, learning_rate=0.01, momentum=0.9):

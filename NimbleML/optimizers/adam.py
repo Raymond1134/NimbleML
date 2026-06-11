@@ -1,8 +1,9 @@
 # adam.py
-# Adaptive Moment Estimation (Adam) optimizer
+# Adam optimizer
 from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
+
 
 class Adam(Optimizer):
     def __init__(self, params, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
