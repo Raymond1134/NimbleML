@@ -237,30 +237,63 @@ class Tensor:
         return tuple(out), shape_a, shape_b
 
     def matmul(self, other):
+        """
+        Matrix multiply via np.matmul (supports batched leading dims).
+
+        Examples: (B, C) @ (C, D), (B, T, C) @ (C, D), (m, k) @ (k, n).
+        """
         other = self._ensure_tensor(other)
-        if self.ndim != 2 or other.ndim != 2:
-            raise ValueError("Matrix multiplication requires 2D tensors.")
-        if self.shape[1] != other.shape[0]:
-            raise ValueError("Inner dimensions must match for matrix multiplication.")
+        left_shape = self.shape
+        right_shape = other.shape
 
-        rows, inner = self.shape
-        _, cols = other.shape
-        left = Tensor._asarray(self.data).reshape(self.shape)
-        right = Tensor._asarray(other.data).reshape(other.shape)
-        out_data = (left @ right).ravel()
+        if self.ndim < 1 or other.ndim < 1:
+            raise ValueError("Matrix multiplication requires tensors with at least one dimension.")
 
-        out = Tensor(out_data, (rows, cols), requires_grad=self.requires_grad or other.requires_grad, _children=(self, other), _op="matmul")
+        left = Tensor._asarray(self.data).reshape(left_shape)
+        right = Tensor._asarray(other.data).reshape(right_shape)
+
+        try:
+            out_arr = np.matmul(left, right)
+        except ValueError as exc:
+            raise ValueError(f"matmul shapes {left_shape} and {right_shape} are not compatible.") from exc
+
+        out_shape = out_arr.shape
+        out = Tensor(
+            out_arr.ravel(),
+            out_shape,
+            requires_grad=self.requires_grad or other.requires_grad,
+            _children=(self, other),
+            _op="matmul",
+        )
 
         def _backward():
             if out.grad is None:
                 return
-            grad_out_arr = Tensor._asarray(out.grad).reshape(rows, cols)
+
+            grad_out = Tensor._asarray(out.grad).reshape(out_shape)
+            left_arr = Tensor._asarray(self.data).reshape(left_shape)
+            right_arr = Tensor._asarray(other.data).reshape(right_shape)
+
             if self.requires_grad:
-                other_arr = Tensor._asarray(other.data).reshape(other.shape)
-                self._accumulate_grad((grad_out_arr @ other_arr.T).ravel())
+                if right_arr.ndim == 1:
+                    grad_left = np.matmul(grad_out, right_arr)
+                else:
+                    right_T = np.swapaxes(right_arr, -2, -1)
+                    grad_left = np.matmul(grad_out, right_T)
+                self._accumulate_grad(grad_left.ravel())
+
             if other.requires_grad:
-                self_arr = Tensor._asarray(self.data).reshape(self.shape)
-                other._accumulate_grad((self_arr.T @ grad_out_arr).ravel())
+                if left_arr.ndim == 1:
+                    grad_right = np.matmul(left_arr, grad_out)
+                elif right_arr.ndim == 1:
+                    grad_right = np.matmul(left_arr[..., np.newaxis], grad_out)
+                elif right_arr.ndim == 2:
+                    contract_axes = (list(range(left_arr.ndim - 1)), list(range(grad_out.ndim - 1)))
+                    grad_right = np.tensordot(left_arr, grad_out, axes=contract_axes)
+                else:
+                    left_T = np.swapaxes(left_arr, -2, -1)
+                    grad_right = np.matmul(left_T, grad_out)
+                other._accumulate_grad(grad_right.ravel())
 
         out._backward = _backward
         return out

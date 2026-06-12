@@ -165,6 +165,63 @@ def test_layernorm_backward():
     gradcheck(fn, tensors)
 
 
+def test_matmul_2d():
+    a = Tensor(np.arange(6, dtype=np.float64).reshape(2, 3), (2, 3), requires_grad=True)
+    b = Tensor(np.arange(12, dtype=np.float64).reshape(3, 4), (3, 4), requires_grad=True)
+    out = a @ b
+    assert out.shape == (2, 4)
+    out.sum().backward()
+    assert a.grad is not None and b.grad is not None
+
+
+def test_matmul_3d():
+    a = Tensor(np.linspace(0, 1, 80, dtype=np.float64), (2, 5, 8), requires_grad=True)
+    b = Tensor(np.linspace(0, 1, 32, dtype=np.float64), (8, 4), requires_grad=True)
+    out = a @ b
+    assert out.shape == (2, 5, 4), f"expected (2, 5, 4), got {out.shape}"
+    out.sum().backward()
+    assert a.grad is not None and b.grad is not None
+
+
+def test_gradcheck_matmul_2d():
+    a = Tensor(np.linspace(0, 1, 6, dtype=np.float64), (2, 3), requires_grad=True)
+    b = Tensor(np.linspace(0, 1, 12, dtype=np.float64), (3, 4), requires_grad=True)
+    tensors = [a, b]
+
+    def fn():
+        for t in tensors:
+            t.grad = None
+        return (a @ b).sum()
+
+    gradcheck(fn, tensors)
+
+
+def test_gradcheck_matmul_3d():
+    a = Tensor(np.linspace(0, 1, 80, dtype=np.float64), (2, 5, 8), requires_grad=True)
+    b = Tensor(np.linspace(0, 1, 32, dtype=np.float64), (8, 4), requires_grad=True)
+    tensors = [a, b]
+
+    def fn():
+        for t in tensors:
+            t.grad = None
+        return (a @ b).sum()
+
+    gradcheck(fn, tensors)
+
+
+def test_dense_3d():
+    layer = Dense(8, 4)
+    x2 = Tensor(np.linspace(0, 1, 16, dtype=np.float64), (2, 8), requires_grad=True)
+    out2 = layer.forward(x2)
+    assert out2.shape == (2, 4)
+
+    x3 = Tensor(np.linspace(0, 1, 80, dtype=np.float64), (2, 5, 8), requires_grad=True)
+    out3 = layer.forward(x3)
+    assert out3.shape == (2, 5, 4)
+    out3.sum().backward()
+    assert x3.grad is not None and layer.weights.grad is not None
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -221,6 +278,11 @@ def main():
     test_embedding_backward()
     test_layernorm_output_mean_approx_0()
     test_layernorm_backward()
+    test_matmul_2d()
+    test_matmul_3d()
+    test_gradcheck_matmul_2d()
+    test_gradcheck_matmul_3d()
+    test_dense_3d()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()

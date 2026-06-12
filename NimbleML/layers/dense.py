@@ -19,8 +19,8 @@ class Dense(Module):
         self.biases = (Tensor([0.0] * out_features, (out_features,), requires_grad=True) if bias else None)
 
     def forward(self, inputs):
-        if inputs.ndim != 2 or inputs.shape[1] != self.in_features:
-            raise ValueError("Input must have shape (batch, in_features)")
+        if inputs.shape[-1] != self.in_features:
+            raise ValueError(f"Expected last dim {self.in_features}, got {inputs.shape[-1]}")
 
         output = inputs @ self.weights
         if self.biases is not None:
