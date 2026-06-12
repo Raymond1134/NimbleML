@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from NimbleML.data.text import build_vocab, decode, encode, load_text
 from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
@@ -222,6 +225,21 @@ def test_dense_3d():
     assert x3.grad is not None and layer.weights.grad is not None
 
 
+def test_text_encode_decode_roundtrip():
+    text = "abc\n123!?"
+    char_to_idx, idx_to_char = build_vocab(text)
+    ids = encode(text, char_to_idx)
+    assert decode(ids, idx_to_char) == text
+
+
+def test_load_text():
+    path = Path(__file__).resolve().parent / "NimbleML" / "data" / "tiny_corpus.txt"
+    ids, char_to_idx, idx_to_char = load_text(path)
+    assert len(ids) > 0
+    assert len(char_to_idx) == len(idx_to_char)
+    assert decode(ids[:100], idx_to_char) == path.read_text(encoding="utf-8")[:100]
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -283,6 +301,8 @@ def main():
     test_gradcheck_matmul_2d()
     test_gradcheck_matmul_3d()
     test_dense_3d()
+    test_text_encode_decode_roundtrip()
+    test_load_text()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()
