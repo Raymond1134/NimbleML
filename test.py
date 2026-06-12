@@ -1,6 +1,17 @@
 from pathlib import Path
 
-from NimbleML.data.text import build_vocab, decode, encode, load_text
+from NimbleML.data.text import (
+    UNK_TOKEN,
+    batch_sequences,
+    build_vocab,
+    build_word_vocab,
+    decode,
+    decode_words,
+    encode,
+    encode_words,
+    load_text,
+    tokenize_words,
+)
 from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
@@ -232,6 +243,30 @@ def test_text_encode_decode_roundtrip():
     assert decode(ids, idx_to_char) == text
 
 
+def test_batch_sequences():
+    ids = list(range(30))
+    batch_size = 2
+    seq_len = 4
+    inputs, targets = next(batch_sequences(ids, batch_size, seq_len))
+    assert inputs.shape == (batch_size, seq_len)
+    assert targets.shape == (batch_size, seq_len)
+    for row in range(batch_size):
+        assert np.allclose(
+            np.asarray(targets.data).reshape(batch_size, seq_len)[row],
+            np.asarray(inputs.data).reshape(batch_size, seq_len)[row] + 1,
+        )
+
+
+def test_word_tokenize_and_vocab():
+    text = "The prince said hello. The prince waved."
+    words = tokenize_words(text)
+    assert "the" in words and "prince" in words
+    word_to_idx, idx_to_word = build_word_vocab(text, max_vocab=32)
+    assert UNK_TOKEN in word_to_idx
+    ids = encode_words(text, word_to_idx)
+    assert decode_words(ids, idx_to_word).split() == words
+
+
 def test_load_text():
     path = Path(__file__).resolve().parent / "NimbleML" / "data" / "tiny_corpus.txt"
     ids, char_to_idx, idx_to_char = load_text(path)
@@ -302,7 +337,9 @@ def main():
     test_gradcheck_matmul_3d()
     test_dense_3d()
     test_text_encode_decode_roundtrip()
+    test_word_tokenize_and_vocab()
     test_load_text()
+    test_batch_sequences()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()
