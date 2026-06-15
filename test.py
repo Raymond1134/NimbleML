@@ -16,6 +16,8 @@ from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
 from NimbleML.layers import Embedding, LayerNorm, MaxPool2D
+from NimbleML.activations import Softmax
+from NimbleML.neural_network.attention import Attention, make_causal_mask
 from NimbleML.utils.gradcheck import gradcheck
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
@@ -275,6 +277,38 @@ def test_load_text():
     assert decode(ids[:100], idx_to_char) == path.read_text(encoding="utf-8")[:100]
 
 
+def test_softmax_3d():
+    logits = Tensor(
+        [1.0, 2.0, 3.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 3.0, 2.0, 1.0, 0.0, 1.0, 2.0],
+        (2, 3, 3),
+        requires_grad=True,
+    )
+    probs = Softmax()(logits)
+    assert probs.shape == (2, 3, 3)
+    row_sums = np.asarray(probs.data).reshape(2, 3, 3).sum(axis=-1)
+    assert np.allclose(row_sums, 1.0)
+    probs.sum().backward()
+    assert logits.grad is not None
+
+
+def test_causal_mask():
+    mask = make_causal_mask(4)
+    assert mask[0, 1] == -np.inf
+    assert mask[1, 1] == 0
+    assert mask[2, 0] == 0
+    assert mask[1, 2] == -np.inf
+
+
+def test_attention_forward_shape():
+    batch, seq_len, d_k = 2, 4, 8
+    rng = np.random.default_rng(0)
+    Q = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k))
+    K = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k))
+    V = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k))
+    out = Attention(d_k).forward(Q, K, V, mask=make_causal_mask(seq_len))
+    assert out.shape == (batch, seq_len, d_k)
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -340,6 +374,9 @@ def main():
     test_word_tokenize_and_vocab()
     test_load_text()
     test_batch_sequences()
+    test_softmax_3d()
+    test_causal_mask()
+    test_attention_forward_shape()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()
