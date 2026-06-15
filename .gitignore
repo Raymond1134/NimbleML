@@ -217,4 +217,13 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# GPT training artifacts (user scripts — not library)
+checkpoints/
+NimbleML/data/corpus.txt
+NimbleML/data/corpus_ids.npy
+NimbleML/data/wikitext-103-raw-v1.zip
+NimbleML/data/wikitext-103-raw/
+NimbleML/data/corpus_ids_4096.npy
+NimbleML/data/tokenizer_4096.json
+
 todo.txt

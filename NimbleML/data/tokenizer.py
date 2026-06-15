@@ -2,6 +2,7 @@
 # Byte-level BPE tokenizer (GPT-2 style) with regex pre-tokenization, from scratch.
 import json
 import re
+import time
 
 # GPT-2-style pre-tokenization: split contractions, words (optional leading
 # space), number runs, punctuation runs, and whitespace. Pre-tokenizing keeps
@@ -54,17 +55,22 @@ class BPETokenizer:
     def vocab_size(self):
         return len(self.vocab)
 
-    def train(self, text, vocab_size, verbose=False):
+    def train(self, text, vocab_size, verbose=False, log_every=25):
         """Learn BPE merges from `text` until the vocab reaches `vocab_size`."""
         if vocab_size < 256:
             raise ValueError("vocab_size must be at least 256 (byte-level base vocab).")
 
         num_merges = vocab_size - 256
-        # Pre-tokenize, then work on per-chunk byte sequences (merges stay in-chunk).
+        if verbose:
+            print(f"  Pre-tokenizing {len(text):,} chars...")
         chunks = [list(piece.encode("utf-8")) for piece in _SPLIT_PATTERN.findall(text)]
+        if verbose:
+            print(f"  {len(chunks):,} chunks | learning {num_merges:,} merges (log every {log_every})...")
 
         merges = {}
         vocab = {i: bytes([i]) for i in range(256)}
+        train_start = time.time()
+        last_log = train_start
 
         for i in range(num_merges):
             stats = {}
@@ -77,12 +83,24 @@ class BPETokenizer:
             chunks = [_merge(chunk, pair, new_id) for chunk in chunks]
             merges[pair] = new_id
             vocab[new_id] = vocab[pair[0]] + vocab[pair[1]]
-            if verbose and (i + 1) % 100 == 0:
-                print(f"  merge {i + 1}/{num_merges}: {pair} -> {new_id} (count {stats[pair]})")
+
+            if verbose:
+                now = time.time()
+                step = i + 1
+                if step == 1 or step % log_every == 0 or step == num_merges or (now - last_log) >= 30:
+                    elapsed = now - train_start
+                    rate = step / elapsed if elapsed > 0 else 0.0
+                    print(
+                        f"  merge {step:,}/{num_merges:,} | pair {pair} -> {new_id} "
+                        f"| count {stats[pair]:,} | {elapsed:.1f}s ({rate:.1f} merge/s)"
+                    )
+                    last_log = now
 
         self.merges = merges
         self.vocab = vocab
         self._cache = {}
+        if verbose:
+            print(f"  BPE training done: vocab={len(vocab):,} in {time.time() - train_start:.1f}s")
         return self
 
     def _encode_chunk(self, piece):
@@ -103,11 +121,40 @@ class BPETokenizer:
         self._cache[piece] = ids
         return ids
 
-    def encode(self, text):
+    def encode(self, text, verbose=False, log_every_chunks=10_000, log_every_seconds=30):
         """Encode a string into a list of token ids."""
+        pieces = _SPLIT_PATTERN.findall(text)
+        total_pieces = len(pieces)
         ids = []
-        for piece in _SPLIT_PATTERN.findall(text):
+        encode_start = time.time()
+        last_log = encode_start
+
+        if verbose:
+            print(f"  Encoding {len(text):,} chars in {total_pieces:,} chunks...")
+
+        for i, piece in enumerate(pieces):
             ids.extend(self._encode_chunk(piece))
+            if not verbose:
+                continue
+            now = time.time()
+            step = i + 1
+            if (
+                step == 1
+                or step == total_pieces
+                or step % log_every_chunks == 0
+                or (now - last_log) >= log_every_seconds
+            ):
+                elapsed = now - encode_start
+                pct = 100.0 * step / total_pieces if total_pieces else 100.0
+                rate = step / elapsed if elapsed > 0 else 0.0
+                print(
+                    f"  encode {step:,}/{total_pieces:,} chunks ({pct:.1f}%) "
+                    f"| {len(ids):,} tokens | {elapsed:.1f}s ({rate:.0f} chunk/s)"
+                )
+                last_log = now
+
+        if verbose:
+            print(f"  Encoding done: {len(ids):,} tokens in {time.time() - encode_start:.1f}s")
         return ids
 
     def decode(self, ids):

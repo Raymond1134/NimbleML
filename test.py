@@ -13,12 +13,14 @@ from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
 from NimbleML.layers import Embedding, LayerNorm, MaxPool2D
 from NimbleML.losses import CrossEntropyLoss
+from NimbleML.optimizers import Adam, LRScheduler
 from NimbleML.activations import Softmax
 from NimbleML.neural_network.attention import Attention, MultiHeadAttention, make_causal_mask
 from NimbleML.neural_network.feed_forward import FeedForward
 from NimbleML.neural_network.module import residual
 from NimbleML.models.gpt import GPT
 from NimbleML.neural_network.transformer import TransformerBlock
+from NimbleML.utils.saveload import load, named_parameters, save
 from NimbleML.utils.gradcheck import gradcheck
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
@@ -289,6 +291,11 @@ def test_batch_sequences():
             np.asarray(inputs.data).reshape(batch_size, seq_len)[row] + 1,
         )
 
+    ids_arr = np.arange(30, dtype=np.int32)
+    inputs, targets = next(batch_sequences(ids_arr, batch_size, seq_len))
+    assert inputs.shape == (batch_size, seq_len)
+    assert targets.shape == (batch_size, seq_len)
+
 
 def test_sequence_cross_entropy():
     logits = Tensor(np.linspace(0, 1, 60, dtype=np.float64), (2, 3, 10), requires_grad=True)
@@ -417,6 +424,84 @@ def test_gpt_forward_shape():
     assert logits.shape == (batch, seq_len, vocab_size)
 
 
+def _host_array(tensor):
+    arr = tensor.data.reshape(tensor.shape)
+    return np.asarray(arr.get() if hasattr(arr, "get") else arr)
+
+
+def test_lr_scheduler_base():
+    layer = Dense(2, 1)
+    optimizer = Adam(layer.parameters(), learning_rate=0.1)
+
+    class DecayLR(LRScheduler):
+        def get_lr(self):
+            return [base * (0.5**self.last_epoch) for base in self.base_lrs]
+
+    scheduler = DecayLR(optimizer)
+    scheduler.step()
+    assert scheduler.last_epoch == 0
+    assert abs(optimizer.learning_rate - 0.1) < 1e-9
+    scheduler.step()
+    assert abs(optimizer.learning_rate - 0.05) < 1e-9
+    scheduler.step(epoch=3)
+    assert scheduler.last_epoch == 3
+    assert abs(optimizer.learning_rate - 0.0125) < 1e-9
+
+
+def test_named_parameters_dense():
+    layer = Dense(3, 2)
+    names = [name for name, _ in named_parameters(layer)]
+    assert names == ["weights", "biases"]
+
+
+def test_checkpoint_save_load_dense(tmp_path=None):
+    path = Path(__file__).parent / "_test_ckpt_dense.npz" if tmp_path is None else tmp_path / "dense.npz"
+    try:
+        model = Dense(4, 2)
+        model.weights.data = np.linspace(0.1, 0.8, 8, dtype=np.float64)
+        model.biases.data = np.array([0.5, -0.5], dtype=np.float64)
+
+        x = Tensor(np.linspace(1, 4, 4, dtype=np.float64), (1, 4))
+        expected = _host_array(model.forward(x))
+
+        save(model, path)
+
+        fresh = Dense(4, 2)
+        load(fresh, path)
+        actual = _host_array(fresh.forward(x))
+
+        if not np.allclose(expected, actual, atol=1e-6):
+            raise AssertionError(f"checkpoint reload mismatch: {expected} vs {actual}")
+    finally:
+        if tmp_path is None and path.exists():
+            path.unlink()
+
+
+def test_checkpoint_save_load_gpt(tmp_path=None):
+    path = Path(__file__).parent / "_test_ckpt_gpt.npz" if tmp_path is None else tmp_path / "gpt.npz"
+    vocab_size, d_model, num_heads, num_layers, max_seq_len = 20, 16, 4, 2, 4
+    batch, seq_len = 2, 4
+    try:
+        model = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
+        input_ids = Tensor(
+            np.tile(np.arange(seq_len, dtype=np.float64), batch),
+            (batch, seq_len),
+        )
+        expected = _host_array(model.forward(input_ids))
+
+        save(model, path)
+
+        fresh = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
+        load(fresh, path)
+        actual = _host_array(fresh.forward(input_ids))
+
+        if not np.allclose(expected, actual, atol=1e-6):
+            raise AssertionError("GPT checkpoint reload mismatch")
+    finally:
+        if tmp_path is None and path.exists():
+            path.unlink()
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -493,6 +578,10 @@ def main():
     test_residual()
     test_transformer_block_shape()
     test_gpt_forward_shape()
+    test_lr_scheduler_base()
+    test_named_parameters_dense()
+    test_checkpoint_save_load_dense()
+    test_checkpoint_save_load_gpt()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()

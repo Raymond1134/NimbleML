@@ -52,7 +52,10 @@ def batch_sequences(ids, batch_size, seq_len=None):
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1.")
 
-    if ids and isinstance(ids[0], list):
+    if len(ids) == 0:
+        return
+
+    if isinstance(ids[0], (list, tuple)):
         num_batches = len(ids) // batch_size
         for i in range(num_batches):
             batch = ids[i * batch_size:(i + 1) * batch_size]
@@ -85,10 +88,10 @@ def batch_sequences(ids, batch_size, seq_len=None):
         yield _rows_to_tensors(rows)
 
 
-def _encode_corpus(text, tokenizer):
+def _encode_corpus(text, tokenizer, verbose=False):
     """Encode a full corpus. The tokenizer caches per pre-token chunk, so repeated
     words across the corpus are encoded only once."""
-    return tokenizer.encode(text)
+    return tokenizer.encode(text, verbose=verbose)
 
 
 def load_text_bpe(path, tokenizer_path=None, vocab_size=1024, max_train_chars=1_000_000, verbose=True):
@@ -122,6 +125,6 @@ def load_text_bpe(path, tokenizer_path=None, vocab_size=1024, max_train_chars=1_
                 print(f"Saved tokenizer to {tokenizer_path}.")
 
     if verbose:
-        print("Encoding corpus...")
-    ids = _encode_corpus(text, tokenizer)
+        print(f"Encoding corpus ({len(text):,} chars)...")
+    ids = _encode_corpus(text, tokenizer, verbose=verbose)
     return ids, tokenizer

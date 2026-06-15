@@ -1,5 +1,6 @@
 from .utils.tensor import Tensor
 from .utils.np_backend import device, np, set_device, using_gpu
+from .utils.saveload import load, save
 from .core import eval, forward, parameters, train
 from .layers import Conv2D, Dense, Dropout, Embedding, Flatten, MaxPool2D
 from .neural_network import Module, Sequential
@@ -34,4 +35,6 @@ __all__ = [
     "NAG",
     "RMSProp",
     "Adam",
+    "save",
+    "load",
 ]
