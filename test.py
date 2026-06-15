@@ -309,6 +309,35 @@ def test_attention_forward_shape():
     assert out.shape == (batch, seq_len, d_k)
 
 
+def test_gradcheck_attention():
+    batch, seq_len, d_k = 1, 3, 4
+    rng = np.random.default_rng(0)
+    Q = Tensor(
+        (rng.standard_normal((batch, seq_len, d_k)) * 0.1).ravel(),
+        (batch, seq_len, d_k),
+        requires_grad=True,
+    )
+    K = Tensor(
+        (rng.standard_normal((batch, seq_len, d_k)) * 0.1).ravel(),
+        (batch, seq_len, d_k),
+        requires_grad=True,
+    )
+    V = Tensor(
+        (rng.standard_normal((batch, seq_len, d_k)) * 0.1).ravel(),
+        (batch, seq_len, d_k),
+        requires_grad=True,
+    )
+    attn = Attention(d_k)
+    tensors = [Q, K, V]
+
+    def fn():
+        for t in tensors:
+            t.grad = None
+        return attn.forward(Q, K, V).sum()
+
+    gradcheck(fn, tensors)
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -377,6 +406,7 @@ def main():
     test_softmax_3d()
     test_causal_mask()
     test_attention_forward_shape()
+    test_gradcheck_attention()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()
