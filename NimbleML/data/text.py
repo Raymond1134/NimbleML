@@ -1,22 +1,8 @@
 # text.py
-# Text data processing utilities (character and word tokenization)
-import re
-from collections import Counter
-
+# Text utilities for language modeling (char-level and BPE token-level)
+import os
+from NimbleML.data.tokenizer import BPETokenizer
 from NimbleML.utils.tensor import Tensor
-
-UNK_TOKEN = "<unk>"
-PAD_TOKEN = "<pad>"
-
-_WORD_PATTERN = re.compile(r"[a-z0-9']+|[.,!?;:]")
-
-
-def tokenize_words(text):
-    """Split text into lowercase word/punctuation tokens."""
-    return _WORD_PATTERN.findall(text.lower())
-
-
-# --- Character-level (legacy / tests) ---
 
 
 def build_vocab(text):
@@ -47,49 +33,6 @@ def load_text(path):
     return ids, char_to_idx, idx_to_char
 
 
-# --- Word-level ---
-
-
-def build_word_vocab(text, max_vocab=8000):
-    """Build word vocab from most frequent tokens. Index 0 = UNK, 1 = PAD."""
-    counts = Counter(tokenize_words(text))
-    vocab = [UNK_TOKEN, PAD_TOKEN]
-    for word, _ in counts.most_common(max(2, max_vocab) - len(vocab)):
-        if word not in vocab:
-            vocab.append(word)
-    word_to_idx = {word: index for index, word in enumerate(vocab)}
-    return word_to_idx, vocab
-
-
-def encode_words(text, word_to_idx):
-    """Convert text to word indices; unknown words map to UNK."""
-    unk_id = word_to_idx[UNK_TOKEN]
-    return [word_to_idx.get(word, unk_id) for word in tokenize_words(text)]
-
-
-def decode_words(ids, idx_to_word):
-    """Join word indices back into readable text."""
-    return " ".join(idx_to_word[i] for i in ids)
-
-
-def load_word_text(path, max_vocab=8000):
-    """Read file, build word vocab, return encoded ids plus vocab maps."""
-    with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    word_to_idx, idx_to_word = build_word_vocab(text, max_vocab=max_vocab)
-    ids = encode_words(text, word_to_idx)
-    return ids, word_to_idx, idx_to_word
-
-
-def encode_prompt(prompt, word_to_idx):
-    """Encode a user prompt that may contain unknown words as UNK."""
-    return encode_words(prompt, word_to_idx)
-
-
-# --- Batching (token-agnostic) ---
-
-
 def _rows_to_tensors(rows):
     """Split full token rows into input/target pairs and wrap as Tensors."""
     inputs = [row[:-1] for row in rows]
@@ -105,11 +48,7 @@ def _rows_to_tensors(rows):
 
 
 def batch_sequences(ids, batch_size, seq_len=None):
-    """Yield (inputs, targets) for next-token prediction.
-
-    Flat ids (from load_text / load_word_text): pass seq_len.
-    List of sequences: batches are padded to the longest sequence in the batch.
-    """
+    """Yield (inputs, targets) for next-token prediction."""
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1.")
 
@@ -144,3 +83,45 @@ def batch_sequences(ids, batch_size, seq_len=None):
             for i in range(batch_size)
         ]
         yield _rows_to_tensors(rows)
+
+
+def _encode_corpus(text, tokenizer):
+    """Encode a full corpus. The tokenizer caches per pre-token chunk, so repeated
+    words across the corpus are encoded only once."""
+    return tokenizer.encode(text)
+
+
+def load_text_bpe(path, tokenizer_path=None, vocab_size=1024, max_train_chars=1_000_000, verbose=True):
+    """Load a corpus as BPE token ids, training (and caching) the tokenizer if needed.
+
+    Returns (ids, tokenizer). If `tokenizer_path` exists it is loaded; otherwise a
+    new tokenizer is trained on the corpus and saved to `tokenizer_path` (if given).
+
+    The naive BPE trainer is O(merges * corpus) in pure Python, so merges are learned
+    from at most `max_train_chars` characters of the corpus (the full corpus is still
+    encoded). Set `max_train_chars=0` to train on everything.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    if tokenizer_path is not None and os.path.exists(tokenizer_path):
+        tokenizer = BPETokenizer.load(tokenizer_path)
+        if verbose:
+            print(f"Loaded tokenizer from {tokenizer_path} (vocab={tokenizer.vocab_size}).")
+    else:
+        train_text = text if max_train_chars <= 0 else text[:max_train_chars]
+        if verbose:
+            print(
+                f"Training BPE tokenizer (target vocab={vocab_size}) "
+                f"on {len(train_text):,} chars..."
+            )
+        tokenizer = BPETokenizer().train(train_text, vocab_size, verbose=verbose)
+        if tokenizer_path is not None:
+            tokenizer.save(tokenizer_path)
+            if verbose:
+                print(f"Saved tokenizer to {tokenizer_path}.")
+
+    if verbose:
+        print("Encoding corpus...")
+    ids = _encode_corpus(text, tokenizer)
+    return ids, tokenizer

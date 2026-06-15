@@ -1,17 +1,18 @@
 # tensor.py
 # Autograd tensor with NumPy/CuPy backend
 from math import prod
+from . import np_backend
 from .np_backend import np
 
 class Tensor:
     @staticmethod
     def _asarray(data):
-        return np.asarray(data, dtype=np.float64)
+        return np.asarray(data, dtype=np_backend.dtype)
 
     def __init__(self, data, shape, requires_grad=False, _children=(), _op=""):
         if isinstance(data, (int, float)):
-            data = np.array([float(data)], dtype=np.float64)
-        self.data = np.asarray(data, dtype=np.float64).ravel()
+            data = np.array([float(data)], dtype=np_backend.dtype)
+        self.data = np.asarray(data, dtype=np_backend.dtype).ravel()
         self.shape = shape
         self.requires_grad = requires_grad
         self.grad = None
@@ -45,19 +46,19 @@ class Tensor:
         return float(self.data[0])
 
     def zero_grad(self):
-        self.grad = np.zeros(self.size, dtype=np.float64)
+        self.grad = np.zeros(self.size, dtype=np_backend.dtype)
 
     def backward(self, grad=None):
         if grad is None:
             if self.size != 1:
                 raise ValueError("grad must be specified for non-scalar tensors.")
-            grad = np.array([1.0], dtype=np.float64)
+            grad = np.array([1.0], dtype=np_backend.dtype)
         elif isinstance(grad, (int, float)):
-            grad = np.array([float(grad)], dtype=np.float64)
+            grad = np.array([float(grad)], dtype=np_backend.dtype)
         elif isinstance(grad, Tensor):
             grad = grad.data
         else:
-            grad = np.asarray(grad, dtype=np.float64)
+            grad = np.asarray(grad, dtype=np_backend.dtype)
 
         self._accumulate_grad(grad)
 
@@ -78,16 +79,16 @@ class Tensor:
     def _accumulate_grad(self, grad):
         if not self.requires_grad:
             return
-        grad = np.asarray(grad, dtype=np.float64)
+        grad = np.asarray(grad, dtype=np_backend.dtype)
         if self.grad is None:
-            self.grad = np.array(grad, dtype=np.float64)
+            self.grad = np.array(grad, dtype=np_backend.dtype)
         else:
             self.grad += grad
 
     def _ensure_tensor(self, other):
         if isinstance(other, Tensor):
             return other
-        return Tensor(np.array([other], dtype=np.float64), (), requires_grad=False)
+        return Tensor(np.array([other], dtype=np_backend.dtype), (), requires_grad=False)
 
     def __add__(self, other):
         return self._apply_binary(
@@ -197,9 +198,9 @@ class Tensor:
 
     @staticmethod
     def _reduce_broadcast_grad(grad, shape):
-        grad = np.asarray(grad, dtype=np.float64)
+        grad = np.asarray(grad, dtype=np_backend.dtype)
         if grad.ndim == 0:
-            return np.array([grad.item()], dtype=np.float64)
+            return np.array([grad.item()], dtype=np_backend.dtype)
 
         ndim = grad.ndim
         target_ndim = len(shape)
@@ -302,7 +303,7 @@ class Tensor:
         arr = self.data
         out_data = np.maximum(arr, 0.0)
         out = Tensor(out_data, self.shape, requires_grad=self.requires_grad, _children=(self,), _op="relu")
-        mask = (arr > 0).astype(np.float64)
+        mask = (arr > 0).astype(np_backend.dtype)
 
         def _backward():
             if out.grad is None or not self.requires_grad:

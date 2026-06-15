@@ -1,5 +1,6 @@
 # adam.py
 # Adam optimizer
+from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
@@ -12,8 +13,8 @@ class Adam(Optimizer):
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
-        self.m = [np.zeros(param.size, dtype=np.float64) for param in self.params]
-        self.v = [np.zeros(param.size, dtype=np.float64) for param in self.params]
+        self.m = [np.zeros(param.size, dtype=np_backend.dtype) for param in self.params]
+        self.v = [np.zeros(param.size, dtype=np_backend.dtype) for param in self.params]
         self.t = 0
 
     def step(self):
@@ -23,9 +24,9 @@ class Adam(Optimizer):
         for i, param in enumerate(self.params):
             if param.grad is None:
                 continue
-            grad = np.asarray(param.grad, dtype=np.float64)
+            grad = np.asarray(param.grad, dtype=np_backend.dtype)
             self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
             self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * grad * grad
             m_hat = self.m[i] / bias_corr1
             v_hat = self.v[i] / bias_corr2
-            param.data = np.asarray(param.data, dtype=np.float64) - self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)
+            param.data = np.asarray(param.data, dtype=np_backend.dtype) - self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)

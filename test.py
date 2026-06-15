@@ -1,23 +1,24 @@
 from pathlib import Path
 
-from NimbleML.data.text import (
-    UNK_TOKEN,
-    batch_sequences,
-    build_vocab,
-    build_word_vocab,
-    decode,
-    decode_words,
-    encode,
-    encode_words,
-    load_text,
-    tokenize_words,
-)
+from NimbleML.utils.np_backend import set_dtype
+
+# Pin float64 for the test suite: finite-difference gradchecks (tol=1e-3) and the
+# many exact-value assertions (tol=1e-6) are too tight for float32 round-off.
+set_dtype("float64")
+
+from NimbleML.data.text import batch_sequences, build_vocab, decode, encode, load_text
+from NimbleML.data.tokenizer import BPETokenizer
 from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
 from NimbleML.layers import Embedding, LayerNorm, MaxPool2D
+from NimbleML.losses import CrossEntropyLoss
 from NimbleML.activations import Softmax
 from NimbleML.neural_network.attention import Attention, MultiHeadAttention, make_causal_mask
+from NimbleML.neural_network.feed_forward import FeedForward
+from NimbleML.neural_network.module import residual
+from NimbleML.models.gpt import GPT
+from NimbleML.neural_network.transformer import TransformerBlock
 from NimbleML.utils.gradcheck import gradcheck
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
@@ -245,6 +246,36 @@ def test_text_encode_decode_roundtrip():
     assert decode(ids, idx_to_char) == text
 
 
+def test_bpe_roundtrip():
+    text = ("the quick brown fox jumps over the lazy dog. "
+            "pack my box with five dozen liquor jugs.\n") * 40
+    tok = BPETokenizer().train(text, vocab_size=300)
+    # Training may stop early once no mergeable pairs remain.
+    assert 256 < tok.vocab_size <= 300
+    sample = "the quick brown fox jumps over the lazy dog."
+    ids = tok.encode(sample)
+    assert all(isinstance(i, int) for i in ids)
+    assert tok.decode(ids) == sample
+    # Merges should compress relative to raw bytes.
+    assert len(ids) < len(sample.encode("utf-8"))
+    # Byte-level fallback handles unseen characters.
+    assert tok.decode(tok.encode("xyz 漢字!")) == "xyz 漢字!"
+
+
+def test_bpe_save_load(tmp_path_factory=None):
+    text = "hello world hello bpe world\n" * 30
+    tok = BPETokenizer().train(text, vocab_size=290)
+    path = Path(__file__).resolve().parent / "_tmp_tokenizer_test.json"
+    try:
+        tok.save(path)
+        loaded = BPETokenizer.load(path)
+        assert loaded.vocab_size == tok.vocab_size
+        assert loaded.encode("hello world") == tok.encode("hello world")
+    finally:
+        if path.exists():
+            path.unlink()
+
+
 def test_batch_sequences():
     ids = list(range(30))
     batch_size = 2
@@ -259,14 +290,13 @@ def test_batch_sequences():
         )
 
 
-def test_word_tokenize_and_vocab():
-    text = "The prince said hello. The prince waved."
-    words = tokenize_words(text)
-    assert "the" in words and "prince" in words
-    word_to_idx, idx_to_word = build_word_vocab(text, max_vocab=32)
-    assert UNK_TOKEN in word_to_idx
-    ids = encode_words(text, word_to_idx)
-    assert decode_words(ids, idx_to_word).split() == words
+def test_sequence_cross_entropy():
+    logits = Tensor(np.linspace(0, 1, 60, dtype=np.float64), (2, 3, 10), requires_grad=True)
+    targets = Tensor([0, 1, 2, 3, 4, 5], (2, 3))
+    loss = CrossEntropyLoss()(logits, targets)
+    assert loss.shape == ()
+    loss.backward()
+    assert logits.grad is not None
 
 
 def test_load_text():
@@ -346,6 +376,47 @@ def test_multi_head_attention_forward_shape():
     assert out.shape == (batch, seq_len, d_model)
 
 
+def test_feed_forward_shape():
+    batch, seq_len, d_model = 2, 8, 32
+    rng = np.random.default_rng(2)
+    x = Tensor(rng.standard_normal((batch, seq_len, d_model)).ravel(), (batch, seq_len, d_model))
+    out = FeedForward(d_model).forward(x)
+    assert out.shape == (batch, seq_len, d_model)
+
+
+def test_residual():
+    x = Tensor([1.0, 2.0, 3.0, 4.0], (2, 2), requires_grad=True)
+
+    def scale(t):
+        return t * 2.0
+
+    out = residual(x, scale)
+    assert out.shape == (2, 2)
+    assert np.allclose(np.asarray(out.data).reshape(2, 2), 3.0 * np.asarray(x.data).reshape(2, 2))
+    out.sum().backward()
+    assert x.grad is not None
+
+
+def test_transformer_block_shape():
+    batch, seq_len, d_model, num_heads = 2, 8, 32, 4
+    rng = np.random.default_rng(3)
+    x = Tensor(rng.standard_normal((batch, seq_len, d_model)).ravel(), (batch, seq_len, d_model))
+    out = TransformerBlock(d_model, num_heads).forward(x)
+    assert out.shape == (batch, seq_len, d_model)
+
+
+def test_gpt_forward_shape():
+    vocab_size, d_model, num_heads, num_layers, max_seq_len = 50, 32, 4, 2, 8
+    batch, seq_len = 2, 8
+    model = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
+    input_ids = Tensor(
+        np.tile(np.arange(seq_len, dtype=np.float64), batch),
+        (batch, seq_len),
+    )
+    logits = model.forward(input_ids)
+    assert logits.shape == (batch, seq_len, vocab_size)
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -408,7 +479,9 @@ def main():
     test_gradcheck_matmul_3d()
     test_dense_3d()
     test_text_encode_decode_roundtrip()
-    test_word_tokenize_and_vocab()
+    test_bpe_roundtrip()
+    test_bpe_save_load()
+    test_sequence_cross_entropy()
     test_load_text()
     test_batch_sequences()
     test_softmax_3d()
@@ -416,6 +489,10 @@ def main():
     test_attention_forward_shape()
     test_gradcheck_attention()
     test_multi_head_attention_forward_shape()
+    test_feed_forward_shape()
+    test_residual()
+    test_transformer_block_shape()
+    test_gpt_forward_shape()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()

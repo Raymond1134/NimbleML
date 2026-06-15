@@ -1,7 +1,7 @@
 # transformer.py
 # Pre-norm transformer block: LN -> attention -> residual, LN -> FFN -> residual
 from NimbleML.layers import LayerNorm
-from .attention import MultiHeadAttention, make_causal_mask
+from .attention import MultiHeadAttention, causal_mask_tensor
 from .feed_forward import FeedForward
 from .module import Module, residual
 
@@ -17,7 +17,7 @@ class TransformerBlock(Module):
 
     def forward(self, x, mask=None):
         if mask is None:
-            mask = make_causal_mask(x.shape[1])
+            mask = causal_mask_tensor(x.shape[1])
 
         x = residual(x, lambda t: self.mha.forward(self.ln1(t), mask=mask))
         x = residual(x, lambda t: self.ffn.forward(self.ln2(t)))

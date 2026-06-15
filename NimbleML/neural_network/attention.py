@@ -1,14 +1,24 @@
 # attention.py
 # Scaled dot-product attention (single-head)
+from functools import lru_cache
 from NimbleML.layers import Dense
 from NimbleML.activations import Softmax
 from NimbleML.neural_network import Module
+from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
+@lru_cache(maxsize=None)
 def make_causal_mask(seq_len):
     return np.triu(np.full((seq_len, seq_len), -np.inf), k=1)
+
+
+@lru_cache(maxsize=None)
+def causal_mask_tensor(seq_len):
+    """Cached (seq_len, seq_len) additive causal mask as a no-grad Tensor."""
+    mask_arr = np.asarray(make_causal_mask(seq_len), dtype=np_backend.dtype)
+    return Tensor(mask_arr.ravel(), mask_arr.shape, requires_grad=False)
 
 def _swap_last_two(tensor):
     shape = tensor.shape
@@ -112,10 +122,15 @@ class Attention(Module):
         scores = scores / self.scale
 
         if mask is not None:
-            mask_arr = np.asarray(mask, dtype=np.float64)
-            if mask_arr.shape != (seq_len, seq_len):
-                raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_arr.shape}")
-            mask_tensor = Tensor(mask_arr.ravel(), mask_arr.shape, requires_grad=False)
+            if isinstance(mask, Tensor):
+                mask_tensor = mask
+                if mask_tensor.shape != (seq_len, seq_len):
+                    raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_tensor.shape}")
+            else:
+                mask_arr = np.asarray(mask, dtype=np_backend.dtype)
+                if mask_arr.shape != (seq_len, seq_len):
+                    raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_arr.shape}")
+                mask_tensor = Tensor(mask_arr.ravel(), mask_arr.shape, requires_grad=False)
             scores = scores + mask_tensor
 
         weights = self.softmax(scores)

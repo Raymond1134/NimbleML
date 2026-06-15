@@ -47,3 +47,8 @@ class Sequential(Module):
         for layer in self.layers:
             if hasattr(layer, "eval"):
                 layer.eval()
+
+
+def residual(x, sublayer):
+    """Skip connection: output = x + sublayer(x). Preserves shape; gradients flow through x."""
+    return x + sublayer(x)
