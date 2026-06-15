@@ -1,5 +1,6 @@
 # attention.py
 # Scaled dot-product attention (single-head)
+from NimbleML.layers import Dense
 from NimbleML.activations import Softmax
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
@@ -31,6 +32,58 @@ def _swap_last_two(tensor):
         grad_out = out.grad.reshape(out_shape)
         grad_in = np.swapaxes(grad_out, -2, -1)
         tensor._accumulate_grad(grad_in.ravel())
+
+    out._backward = _backward
+    return out
+
+
+def _split_heads(tensor, batch, seq_len, num_heads, d_k):
+    """(batch, seq, d_model) -> (batch * num_heads, seq, d_k)."""
+    shape_4d = (batch, seq_len, num_heads, d_k)
+    t = tensor.reshape(shape_4d)
+    arr = Tensor._asarray(t.data).reshape(shape_4d)
+    out_arr = np.transpose(arr, (0, 2, 1, 3))
+    out_shape = (batch * num_heads, seq_len, d_k)
+    out = Tensor(
+        out_arr.ravel(),
+        out_shape,
+        requires_grad=tensor.requires_grad,
+        _children=(t,),
+        _op="split_heads",
+    )
+
+    def _backward():
+        if out.grad is None or not tensor.requires_grad:
+            return
+        grad_out = out.grad.reshape(batch, num_heads, seq_len, d_k)
+        grad_in = np.transpose(grad_out, (0, 2, 1, 3))
+        t._accumulate_grad(grad_in.ravel())
+
+    out._backward = _backward
+    return out
+
+
+def _merge_heads(tensor, batch, seq_len, num_heads, d_k):
+    """(batch * num_heads, seq, d_k) -> (batch, seq, d_model)."""
+    shape_4d = (batch, num_heads, seq_len, d_k)
+    t = tensor.reshape(shape_4d)
+    arr = Tensor._asarray(t.data).reshape(shape_4d)
+    out_arr = np.transpose(arr, (0, 2, 1, 3))
+    out_shape = (batch, seq_len, num_heads * d_k)
+    out = Tensor(
+        out_arr.ravel(),
+        out_shape,
+        requires_grad=tensor.requires_grad,
+        _children=(t,),
+        _op="merge_heads",
+    )
+
+    def _backward():
+        if out.grad is None or not tensor.requires_grad:
+            return
+        grad_out = out.grad.reshape(batch, seq_len, num_heads, d_k)
+        grad_in = np.transpose(grad_out, (0, 2, 1, 3))
+        t._accumulate_grad(grad_in.ravel())
 
     out._backward = _backward
     return out
@@ -70,3 +123,36 @@ class Attention(Module):
 
     def parameters(self):
         return []
+
+
+class MultiHeadAttention(Module):
+    def __init__(self, d_model, num_heads):
+        if d_model % num_heads != 0:
+            raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads}).")
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.W_q = Dense(d_model, d_model)
+        self.W_k = Dense(d_model, d_model)
+        self.W_v = Dense(d_model, d_model)
+        self.W_o = Dense(d_model, d_model)
+        self.attention = Attention(d_k=self.d_k)
+
+    def forward(self, x, mask=None):
+        batch, seq_len, d_model = x.shape
+        if d_model != self.d_model:
+            raise ValueError(f"Expected d_model {self.d_model}, got {d_model}")
+
+        Q = _split_heads(self.W_q(x), batch, seq_len, self.num_heads, self.d_k)
+        K = _split_heads(self.W_k(x), batch, seq_len, self.num_heads, self.d_k)
+        V = _split_heads(self.W_v(x), batch, seq_len, self.num_heads, self.d_k)
+
+        out = self.attention.forward(Q, K, V, mask=mask)
+        out = _merge_heads(out, batch, seq_len, self.num_heads, self.d_k)
+        return self.W_o(out)
+
+    def parameters(self):
+        params = []
+        for layer in (self.W_q, self.W_k, self.W_v, self.W_o):
+            params.extend(layer.parameters())
+        return params

@@ -17,7 +17,7 @@ from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
 from NimbleML.layers import Embedding, LayerNorm, MaxPool2D
 from NimbleML.activations import Softmax
-from NimbleML.neural_network.attention import Attention, make_causal_mask
+from NimbleML.neural_network.attention import Attention, MultiHeadAttention, make_causal_mask
 from NimbleML.utils.gradcheck import gradcheck
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
@@ -338,6 +338,14 @@ def test_gradcheck_attention():
     gradcheck(fn, tensors)
 
 
+def test_multi_head_attention_forward_shape():
+    batch, seq_len, d_model, num_heads = 2, 4, 32, 4
+    rng = np.random.default_rng(1)
+    x = Tensor(rng.standard_normal((batch, seq_len, d_model)).ravel(), (batch, seq_len, d_model))
+    out = MultiHeadAttention(d_model, num_heads).forward(x, mask=make_causal_mask(seq_len))
+    assert out.shape == (batch, seq_len, d_model)
+
+
 def test_gradcheck_dense():
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
@@ -407,6 +415,7 @@ def main():
     test_causal_mask()
     test_attention_forward_shape()
     test_gradcheck_attention()
+    test_multi_head_attention_forward_shape()
     test_gradcheck_dense()
     test_gradcheck_conv2d()
     test_gradcheck_maxpool2d()
