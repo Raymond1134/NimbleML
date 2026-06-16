@@ -1,5 +1,4 @@
-# np_backend.py
-# Unified array backend: CuPy when a CUDA device is available, NumPy otherwise.
+"""Unified array backend: CuPy when a CUDA device is available, NumPy otherwise."""
 import os
 
 _DEVICE_PREFERENCE = os.environ.get("NIMBLEML_DEVICE", "auto").strip().lower()

@@ -1,4 +1,4 @@
-# conv2D.py
+"""conv2d module for NimbleML."""
 # 2D convolutional layer
 from math import sqrt
 from NimbleML.neural_network import Module
@@ -76,6 +76,7 @@ def _col2im(cols, meta):
 
 
 class Conv2D(Module):
+    """Public class Conv2D."""
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -92,6 +93,7 @@ class Conv2D(Module):
         self.biases = Tensor(np.zeros(out_channels), (out_channels,), requires_grad=True) if bias else None
 
     def forward(self, inputs):
+        """Public function forward."""
         if inputs.ndim != 4:
             raise ValueError("Conv2D expects (N, C, H, W).")
         if inputs.shape[1] != self.in_channels:
@@ -144,6 +146,7 @@ class Conv2D(Module):
         return output
 
     def parameters(self):
+        """Public function parameters."""
         params = [self.weights]
         if self.biases is not None:
             params.append(self.biases)

@@ -1,5 +1,4 @@
-# adam.py
-# Adam optimizer
+"""Adam optimizer"""
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 
@@ -7,6 +6,7 @@ from .optimizer import Optimizer
 
 
 class Adam(Optimizer):
+    """Public class Adam."""
     def __init__(self, params, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
         super().__init__(params, learning_rate=learning_rate)
         self.beta1 = beta1
@@ -17,6 +17,7 @@ class Adam(Optimizer):
         self.t = 0
 
     def step(self):
+        """Public function step."""
         self.t += 1
         bias_corr1 = 1 - self.beta1 ** self.t
         bias_corr2 = 1 - self.beta2 ** self.t

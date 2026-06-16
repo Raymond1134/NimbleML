@@ -1,3 +1,5 @@
+"""Unit and integration tests for NimbleML."""
+
 from pathlib import Path
 
 from NimbleML.utils.np_backend import set_dtype
@@ -7,12 +9,12 @@ from NimbleML.utils.np_backend import set_dtype
 set_dtype("float64")
 
 from NimbleML.data.text import batch_sequences, build_vocab, decode, encode, load_text
-from NimbleML.layers.conv2D import Conv2D, _im2col
+from NimbleML.layers.conv2d import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
 from NimbleML.layers import Embedding, LayerNorm, MaxPool2D
 from NimbleML.losses import CrossEntropyLoss
-from NimbleML.optimizers import Adam, LRScheduler, StepLR, SGD
+from NimbleML.optimizers import Adam, CosineAnnealing, LinearWarmup, LRScheduler, SGD, StepLR
 from NimbleML.activations import Softmax
 from NimbleML.neural_network.attention import Attention, MultiHeadAttention, make_causal_mask
 from NimbleML.neural_network.feed_forward import FeedForward
@@ -34,6 +36,7 @@ def _assert_list_close(label, actual, expected, tol=1e-6):
 
 
 def test_forward_broadcasting():
+    """Public function test_forward_broadcasting."""
     a = Tensor([1, 2, 3, 4, 5, 6], (2, 3))
     b = Tensor([10, 20, 30], (3,))
     out = a + b
@@ -54,6 +57,7 @@ def test_forward_broadcasting():
 
 
 def test_backward_broadcasting():
+    """Public function test_backward_broadcasting."""
     a = Tensor([1, 2], (2, 1), requires_grad=True)
     b = Tensor([10, 20, 30], (1, 3), requires_grad=True)
     loss = (a + b).sum()
@@ -70,6 +74,7 @@ def test_backward_broadcasting():
 
 
 def test_im2col():
+    """Public function test_im2col."""
     x = np.arange(1, 17, dtype=np.float64).reshape(1, 1, 4, 4)
 
     cols, meta = _im2col(x, kernel_size=3, stride=1, padding=0)
@@ -89,6 +94,7 @@ def test_im2col():
 
 
 def test_conv2d_forward():
+    """Public function test_conv2d_forward."""
     layer = Conv2D(1, 2, kernel_size=3, stride=1, padding=0, bias=True)
     x = Tensor(np.arange(1, 17, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
     out = layer.forward(x)
@@ -96,6 +102,7 @@ def test_conv2d_forward():
 
 
 def test_conv2d_backward():
+    """Public function test_conv2d_backward."""
     np.random.seed(0)
     layer = Conv2D(1, 1, kernel_size=2, stride=1, padding=0, bias=True)
     x = Tensor(np.arange(1, 10, dtype=np.float64), (1, 1, 3, 3), requires_grad=True)
@@ -112,6 +119,7 @@ def test_conv2d_backward():
 
 
 def test_maxpool2d_forward():
+    """Public function test_maxpool2d_forward."""
     layer = MaxPool2D(kernel_size=2, stride=2)
     x = Tensor(np.arange(1, 17, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
     out = layer.forward(x)
@@ -120,6 +128,7 @@ def test_maxpool2d_forward():
 
 
 def test_maxpool2d_backward():
+    """Public function test_maxpool2d_backward."""
     layer = MaxPool2D(kernel_size=2, stride=2)
     x = Tensor(np.arange(1, 17, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
     out = layer.forward(x)
@@ -129,6 +138,7 @@ def test_maxpool2d_backward():
 
 
 def test_flatten():
+    """Public function test_flatten."""
     layer = Flatten()
     x = Tensor(np.arange(24, dtype=np.float64), (2, 3, 2, 2), requires_grad=True)
     out = layer.forward(x)
@@ -141,6 +151,7 @@ def test_flatten():
 
 
 def test_embedding_forward_shape():
+    """Public function test_embedding_forward_shape."""
     layer = Embedding(vocab_size=10, embed_dim=4)
     layer.weights.data = np.arange(40, dtype=np.float64)
     ids = [[0, 2, 5], [1, 3, 9]]
@@ -151,6 +162,7 @@ def test_embedding_forward_shape():
 
 
 def test_embedding_backward():
+    """Public function test_embedding_backward."""
     layer = Embedding(vocab_size=10, embed_dim=4)
     ids = [[0, 2, 2], [1, 3, 0]]
     out = layer.forward(ids)
@@ -161,6 +173,7 @@ def test_embedding_backward():
 
 
 def test_layernorm_output_mean_approx_0():
+    """Public function test_layernorm_output_mean_approx_0."""
     layer = LayerNorm(4)
     x = Tensor(np.linspace(-2, 2, 24, dtype=np.float64), (2, 3, 4), requires_grad=True)
     out = layer.forward(x)
@@ -169,6 +182,7 @@ def test_layernorm_output_mean_approx_0():
 
 
 def test_layernorm_backward():
+    """Public function test_layernorm_backward."""
     layer = LayerNorm(4)
     layer.gamma.data = np.linspace(0.5, 1.5, 4, dtype=np.float64)
     layer.beta.data = np.linspace(-0.2, 0.2, 4, dtype=np.float64)
@@ -176,6 +190,7 @@ def test_layernorm_backward():
     tensors = [x, layer.gamma, layer.beta]
 
     def fn():
+        """Public function fn."""
         for t in tensors:
             t.grad = None
         return layer.forward(x).sum()
@@ -184,6 +199,7 @@ def test_layernorm_backward():
 
 
 def test_matmul_2d():
+    """Public function test_matmul_2d."""
     a = Tensor(np.arange(6, dtype=np.float64).reshape(2, 3), (2, 3), requires_grad=True)
     b = Tensor(np.arange(12, dtype=np.float64).reshape(3, 4), (3, 4), requires_grad=True)
     out = a @ b
@@ -193,6 +209,7 @@ def test_matmul_2d():
 
 
 def test_matmul_3d():
+    """Public function test_matmul_3d."""
     a = Tensor(np.linspace(0, 1, 80, dtype=np.float64), (2, 5, 8), requires_grad=True)
     b = Tensor(np.linspace(0, 1, 32, dtype=np.float64), (8, 4), requires_grad=True)
     out = a @ b
@@ -202,11 +219,13 @@ def test_matmul_3d():
 
 
 def test_gradcheck_matmul_2d():
+    """Public function test_gradcheck_matmul_2d."""
     a = Tensor(np.linspace(0, 1, 6, dtype=np.float64), (2, 3), requires_grad=True)
     b = Tensor(np.linspace(0, 1, 12, dtype=np.float64), (3, 4), requires_grad=True)
     tensors = [a, b]
 
     def fn():
+        """Public function fn."""
         for t in tensors:
             t.grad = None
         return (a @ b).sum()
@@ -215,11 +234,13 @@ def test_gradcheck_matmul_2d():
 
 
 def test_gradcheck_matmul_3d():
+    """Public function test_gradcheck_matmul_3d."""
     a = Tensor(np.linspace(0, 1, 80, dtype=np.float64), (2, 5, 8), requires_grad=True)
     b = Tensor(np.linspace(0, 1, 32, dtype=np.float64), (8, 4), requires_grad=True)
     tensors = [a, b]
 
     def fn():
+        """Public function fn."""
         for t in tensors:
             t.grad = None
         return (a @ b).sum()
@@ -228,6 +249,7 @@ def test_gradcheck_matmul_3d():
 
 
 def test_dense_3d():
+    """Public function test_dense_3d."""
     layer = Dense(8, 4)
     x2 = Tensor(np.linspace(0, 1, 16, dtype=np.float64), (2, 8), requires_grad=True)
     out2 = layer.forward(x2)
@@ -241,6 +263,7 @@ def test_dense_3d():
 
 
 def test_text_encode_decode_roundtrip():
+    """Public function test_text_encode_decode_roundtrip."""
     text = "abc\n123!?"
     char_to_idx, idx_to_char = build_vocab(text)
     ids = encode(text, char_to_idx)
@@ -248,6 +271,7 @@ def test_text_encode_decode_roundtrip():
 
 
 def test_batch_sequences():
+    """Public function test_batch_sequences."""
     ids = list(range(30))
     batch_size = 2
     seq_len = 4
@@ -267,6 +291,7 @@ def test_batch_sequences():
 
 
 def test_sequence_cross_entropy():
+    """Public function test_sequence_cross_entropy."""
     logits = Tensor(np.linspace(0, 1, 60, dtype=np.float64), (2, 3, 10), requires_grad=True)
     targets = Tensor([0, 1, 2, 3, 4, 5], (2, 3))
     loss = CrossEntropyLoss()(logits, targets)
@@ -276,6 +301,7 @@ def test_sequence_cross_entropy():
 
 
 def test_load_text():
+    """Public function test_load_text."""
     path = Path(__file__).resolve().parent / "NimbleML" / "data" / "tiny_corpus.txt"
     ids, char_to_idx, idx_to_char = load_text(path)
     assert len(ids) > 0
@@ -284,6 +310,7 @@ def test_load_text():
 
 
 def test_softmax_3d():
+    """Public function test_softmax_3d."""
     logits = Tensor(
         [1.0, 2.0, 3.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 3.0, 2.0, 1.0, 0.0, 1.0, 2.0],
         (2, 3, 3),
@@ -298,6 +325,7 @@ def test_softmax_3d():
 
 
 def test_causal_mask():
+    """Public function test_causal_mask."""
     mask = make_causal_mask(4)
     assert mask[0, 1] == -np.inf
     assert mask[1, 1] == 0
@@ -306,6 +334,7 @@ def test_causal_mask():
 
 
 def test_attention_forward_shape():
+    """Public function test_attention_forward_shape."""
     batch, seq_len, d_k = 2, 4, 8
     rng = np.random.default_rng(0)
     Q = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k))
@@ -316,6 +345,7 @@ def test_attention_forward_shape():
 
 
 def test_gradcheck_attention():
+    """Public function test_gradcheck_attention."""
     batch, seq_len, d_k = 1, 3, 4
     rng = np.random.default_rng(0)
     Q = Tensor(
@@ -337,6 +367,7 @@ def test_gradcheck_attention():
     tensors = [Q, K, V]
 
     def fn():
+        """Public function fn."""
         for t in tensors:
             t.grad = None
         return attn.forward(Q, K, V).sum()
@@ -345,6 +376,7 @@ def test_gradcheck_attention():
 
 
 def test_multi_head_attention_forward_shape():
+    """Public function test_multi_head_attention_forward_shape."""
     batch, seq_len, d_model, num_heads = 2, 4, 32, 4
     rng = np.random.default_rng(1)
     x = Tensor(rng.standard_normal((batch, seq_len, d_model)).ravel(), (batch, seq_len, d_model))
@@ -353,6 +385,7 @@ def test_multi_head_attention_forward_shape():
 
 
 def test_feed_forward_shape():
+    """Public function test_feed_forward_shape."""
     batch, seq_len, d_model = 2, 8, 32
     rng = np.random.default_rng(2)
     x = Tensor(rng.standard_normal((batch, seq_len, d_model)).ravel(), (batch, seq_len, d_model))
@@ -361,9 +394,11 @@ def test_feed_forward_shape():
 
 
 def test_residual():
+    """Public function test_residual."""
     x = Tensor([1.0, 2.0, 3.0, 4.0], (2, 2), requires_grad=True)
 
     def scale(t):
+        """Public function scale."""
         return t * 2.0
 
     out = residual(x, scale)
@@ -374,6 +409,7 @@ def test_residual():
 
 
 def test_transformer_block_shape():
+    """Public function test_transformer_block_shape."""
     batch, seq_len, d_model, num_heads = 2, 8, 32, 4
     rng = np.random.default_rng(3)
     x = Tensor(rng.standard_normal((batch, seq_len, d_model)).ravel(), (batch, seq_len, d_model))
@@ -382,6 +418,7 @@ def test_transformer_block_shape():
 
 
 def test_gpt_forward_shape():
+    """Public function test_gpt_forward_shape."""
     vocab_size, d_model, num_heads, num_layers, max_seq_len = 50, 32, 4, 2, 8
     batch, seq_len = 2, 8
     model = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
@@ -399,11 +436,14 @@ def _host_array(tensor):
 
 
 def test_lr_scheduler_base():
+    """Public function test_lr_scheduler_base."""
     layer = Dense(2, 1)
     optimizer = Adam(layer.parameters(), learning_rate=0.1)
 
     class DecayLR(LRScheduler):
+        """Public class DecayLR."""
         def get_lr(self):
+            """Public function get_lr."""
             return [base * (0.5**self.last_epoch) for base in self.base_lrs]
 
     scheduler = DecayLR(optimizer)
@@ -418,6 +458,7 @@ def test_lr_scheduler_base():
 
 
 def test_step_lr():
+    """Public function test_step_lr."""
     optimizer = SGD([Tensor([1.0], (1,), requires_grad=True)], learning_rate=1.0)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
 
@@ -429,7 +470,41 @@ def test_step_lr():
     assert abs(optimizer.learning_rate - 0.1) < 1e-9
 
 
+def test_cosine_annealing():
+    """Public function test_cosine_annealing."""
+    optimizer = SGD([Tensor([1.0], (1,), requires_grad=True)], learning_rate=1.0)
+    scheduler = CosineAnnealing(optimizer, T_max=4, eta_min=0.2)
+
+    scheduler.step()  # epoch 0
+    assert abs(optimizer.learning_rate - 1.0) < 1e-9
+    scheduler.step()  # epoch 1
+    assert abs(optimizer.learning_rate - 0.882842712474619) < 1e-12
+    scheduler.step()  # epoch 2
+    assert abs(optimizer.learning_rate - 0.6) < 1e-12
+    scheduler.step()  # epoch 3
+    assert abs(optimizer.learning_rate - 0.317157287525381) < 1e-12
+    scheduler.step()  # epoch 4
+    assert abs(optimizer.learning_rate - 0.2) < 1e-12
+
+
+def test_linear_warmup_wrapper():
+    """Public function test_linear_warmup_wrapper."""
+    optimizer = SGD([Tensor([1.0], (1,), requires_grad=True)], learning_rate=1.0)
+    inner_scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
+    scheduler = LinearWarmup(inner_scheduler, warmup_steps=3)
+
+    scheduler.step()  # epoch 0: inner=1.0, warmup=1/3
+    assert abs(optimizer.learning_rate - (1.0 / 3.0)) < 1e-12
+    scheduler.step()  # epoch 1: inner=1.0, warmup=2/3
+    assert abs(optimizer.learning_rate - (2.0 / 3.0)) < 1e-12
+    scheduler.step()  # epoch 2: inner=0.1, warmup=1.0
+    assert abs(optimizer.learning_rate - 0.1) < 1e-12
+    scheduler.step()  # epoch 3: inner=0.1, warmup done
+    assert abs(optimizer.learning_rate - 0.1) < 1e-12
+
+
 def test_lr_scheduler_param_groups():
+    """Public function test_lr_scheduler_param_groups."""
     w1 = Tensor([1.0], (1,), requires_grad=True)
     w2 = Tensor([2.0], (1,), requires_grad=True)
     optimizer = Adam(
@@ -440,7 +515,9 @@ def test_lr_scheduler_param_groups():
     )
 
     class HalfLR(LRScheduler):
+        """Public class HalfLR."""
         def get_lr(self):
+            """Public function get_lr."""
             return [base * 0.5 for base in self.base_lrs]
 
     scheduler = HalfLR(optimizer)
@@ -451,12 +528,14 @@ def test_lr_scheduler_param_groups():
 
 
 def test_named_parameters_dense():
+    """Public function test_named_parameters_dense."""
     layer = Dense(3, 2)
     names = [name for name, _ in named_parameters(layer)]
     assert names == ["weights", "biases"]
 
 
 def test_checkpoint_save_load_dense(tmp_path=None):
+    """Public function test_checkpoint_save_load_dense."""
     path = Path(__file__).parent / "_test_ckpt_dense.npz" if tmp_path is None else tmp_path / "dense.npz"
     try:
         model = Dense(4, 2)
@@ -480,6 +559,7 @@ def test_checkpoint_save_load_dense(tmp_path=None):
 
 
 def test_checkpoint_save_load_gpt(tmp_path=None):
+    """Public function test_checkpoint_save_load_gpt."""
     path = Path(__file__).parent / "_test_ckpt_gpt.npz" if tmp_path is None else tmp_path / "gpt.npz"
     vocab_size, d_model, num_heads, num_layers, max_seq_len = 20, 16, 4, 2, 4
     batch, seq_len = 2, 4
@@ -505,6 +585,7 @@ def test_checkpoint_save_load_gpt(tmp_path=None):
 
 
 def test_gradcheck_dense():
+    """Public function test_gradcheck_dense."""
     layer = Dense(2, 1)
     layer.weights.data = np.array([0.5, -0.3], dtype=np.float64)
     layer.biases.data = np.array([0.1], dtype=np.float64)
@@ -512,6 +593,7 @@ def test_gradcheck_dense():
     tensors = [x, layer.weights, layer.biases]
 
     def fn():
+        """Public function fn."""
         for t in tensors:
             t.grad = None
         return layer.forward(x).sum()
@@ -520,6 +602,7 @@ def test_gradcheck_dense():
 
 
 def test_gradcheck_conv2d():
+    """Public function test_gradcheck_conv2d."""
     layer = Conv2D(1, 1, kernel_size=3, stride=1, padding=0, bias=True)
     layer.weights.data = np.linspace(0.1, 0.9, 9, dtype=np.float64)
     layer.biases.data = np.array([0.05], dtype=np.float64)
@@ -527,6 +610,7 @@ def test_gradcheck_conv2d():
     tensors = [x, layer.weights, layer.biases]
 
     def fn():
+        """Public function fn."""
         for t in tensors:
             t.grad = None
         return layer.forward(x).sum()
@@ -535,11 +619,13 @@ def test_gradcheck_conv2d():
 
 
 def test_gradcheck_maxpool2d():
+    """Public function test_gradcheck_maxpool2d."""
     layer = MaxPool2D(kernel_size=2, stride=2)
     x = Tensor(np.arange(1, 17, dtype=np.float64), (1, 1, 4, 4), requires_grad=True)
     tensors = [x]
 
     def fn():
+        """Public function fn."""
         for t in tensors:
             t.grad = None
         return layer.forward(x).sum()
@@ -548,6 +634,7 @@ def test_gradcheck_maxpool2d():
 
 
 def main():
+    """Public function main."""
     test_forward_broadcasting()
     test_backward_broadcasting()
     test_im2col()
@@ -580,6 +667,8 @@ def main():
     test_gpt_forward_shape()
     test_lr_scheduler_base()
     test_step_lr()
+    test_cosine_annealing()
+    test_linear_warmup_wrapper()
     test_lr_scheduler_param_groups()
     test_named_parameters_dense()
     test_checkpoint_save_load_dense()

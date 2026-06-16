@@ -1,8 +1,8 @@
-# core.py
-# Helpers for running models built as Module/Sequential or legacy layer lists
+"""Helpers for running models built as Module/Sequential or legacy layer lists"""
 
 
 def forward(model, data):
+    """Public function forward."""
     if not isinstance(model, list):
         return model(data)
     for layer in model:
@@ -11,6 +11,7 @@ def forward(model, data):
 
 
 def parameters(model):
+    """Public function parameters."""
     if not isinstance(model, list):
         return model.parameters()
     params = []
@@ -21,6 +22,7 @@ def parameters(model):
 
 
 def train(model):
+    """Public function train."""
     if not isinstance(model, list):
         model.train()
         return
@@ -30,6 +32,7 @@ def train(model):
 
 
 def eval(model):
+    """Public function eval."""
     if not isinstance(model, list):
         model.eval()
         return

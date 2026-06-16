@@ -1,5 +1,4 @@
-# attention.py
-# Scaled dot-product attention (single-head)
+"""Scaled dot-product attention (single-head)"""
 from functools import lru_cache
 from NimbleML.layers import Dense
 from NimbleML.activations import Softmax
@@ -11,6 +10,7 @@ from NimbleML.utils.tensor import Tensor
 
 @lru_cache(maxsize=None)
 def make_causal_mask(seq_len):
+    """Public function make_causal_mask."""
     return np.triu(np.full((seq_len, seq_len), -np.inf), k=1)
 
 
@@ -100,12 +100,14 @@ def _merge_heads(tensor, batch, seq_len, num_heads, d_k):
 
 
 class Attention(Module):
+    """Public class Attention."""
     def __init__(self, d_k):
         self.d_k = d_k
         self.scale = float(d_k) ** 0.5
         self.softmax = Softmax(axis=-1)
 
     def forward(self, Q, K, V, mask=None):
+        """Public function forward."""
         if Q.ndim != 3 or K.ndim != 3 or V.ndim != 3:
             raise ValueError(
                 f"Expected 3 dimensions, got {Q.ndim} for Q, {K.ndim} for K, {V.ndim} for V"
@@ -137,10 +139,12 @@ class Attention(Module):
         return weights @ V
 
     def parameters(self):
+        """Public function parameters."""
         return []
 
 
 class MultiHeadAttention(Module):
+    """Public class MultiHeadAttention."""
     def __init__(self, d_model, num_heads):
         if d_model % num_heads != 0:
             raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads}).")
@@ -154,6 +158,7 @@ class MultiHeadAttention(Module):
         self.attention = Attention(d_k=self.d_k)
 
     def forward(self, x, mask=None):
+        """Public function forward."""
         batch, seq_len, d_model = x.shape
         if d_model != self.d_model:
             raise ValueError(f"Expected d_model {self.d_model}, got {d_model}")
@@ -167,6 +172,7 @@ class MultiHeadAttention(Module):
         return self.W_o(out)
 
     def parameters(self):
+        """Public function parameters."""
         params = []
         for layer in (self.W_q, self.W_k, self.W_v, self.W_o):
             params.extend(layer.parameters())

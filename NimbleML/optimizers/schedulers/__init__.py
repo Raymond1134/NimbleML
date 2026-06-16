@@ -1,4 +1,14 @@
-from .base import LRScheduler
-from .stepLR import StepLR
+"""Package exports and public API surface."""
 
-__all__ = ["LRScheduler", "StepLR"]
+from .base import LRScheduler
+from .step_lr import StepLR
+from .linear_warmup import LinearWarmup
+from .cosine_annealing import CosineAnnealingLR, CosineAnnealing
+
+__all__ = [
+    "LRScheduler",
+    "StepLR",
+    "LinearWarmup",
+    "CosineAnnealingLR",
+    "CosineAnnealing",
+]

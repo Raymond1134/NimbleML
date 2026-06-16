@@ -1,17 +1,18 @@
-# nag.py
-# Nesterov accelerated gradient
+"""Nesterov accelerated gradient"""
 from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
 
 
 class NAG(Optimizer):
+    """Public class NAG."""
     def __init__(self, params, learning_rate=0.01, momentum=0.9):
         super().__init__(params, learning_rate=learning_rate)
         self.momentum = momentum
         self.velocities = [np.zeros(param.size, dtype=np.float64) for param in self.params]
 
     def step(self):
+        """Public function step."""
         offset = 0
         for group in self.param_groups:
             lr = group["lr"]

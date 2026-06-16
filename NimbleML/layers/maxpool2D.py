@@ -1,4 +1,4 @@
-# maxpool2D.py
+"""maxpool2d module for NimbleML."""
 # 2D max pooling layer
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
@@ -52,11 +52,13 @@ def _scatter_grad_to_argmax(patches_flat, argmax, grad_out):
 
 
 class MaxPool2D(Module):
+    """Public class MaxPool2D."""
     def __init__(self, kernel_size, stride=None):
         self.kernel_size = kernel_size
         self.stride = stride if stride is not None else kernel_size
 
     def forward(self, inputs):
+        """Public function forward."""
         if inputs.ndim != 4:
             raise ValueError("MaxPool2d expects (N, C, H, W).")
 

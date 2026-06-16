@@ -1,5 +1,4 @@
-# transformer.py
-# Pre-norm transformer block: LN -> attention -> residual, LN -> FFN -> residual
+"""Pre-norm transformer block: LN -> attention -> residual, LN -> FFN -> residual"""
 from NimbleML.layers import LayerNorm
 from .attention import MultiHeadAttention, causal_mask_tensor
 from .feed_forward import FeedForward
@@ -7,6 +6,7 @@ from .module import Module, residual
 
 
 class TransformerBlock(Module):
+    """Public class TransformerBlock."""
     def __init__(self, d_model, num_heads, ff_mult=4):
         self.d_model = d_model
         self.num_heads = num_heads
@@ -16,6 +16,7 @@ class TransformerBlock(Module):
         self.ffn = FeedForward(d_model, ff_mult=ff_mult)
 
     def forward(self, x, mask=None):
+        """Public function forward."""
         if mask is None:
             mask = causal_mask_tensor(x.shape[1])
 
@@ -24,6 +25,7 @@ class TransformerBlock(Module):
         return x
 
     def parameters(self):
+        """Public function parameters."""
         params = []
         for layer in (self.ln1, self.mha, self.ln2, self.ffn):
             params.extend(layer.parameters())

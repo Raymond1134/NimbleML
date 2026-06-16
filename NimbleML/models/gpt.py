@@ -1,5 +1,4 @@
-# gpt.py
-# Minimal GPT-style language model
+"""Minimal GPT-style language model"""
 from NimbleML.layers import Dense, Embedding, LayerNorm
 from NimbleML.neural_network.module import Module, Sequential
 from NimbleML.neural_network.transformer import TransformerBlock
@@ -7,6 +6,7 @@ from NimbleML.utils.np_backend import np
 
 
 class GPT(Module):
+    """Public class GPT."""
     def __init__(self, vocab_size, d_model, num_heads, num_layers, max_seq_len, ff_mult=4):
         if d_model % num_heads != 0:
             raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads}).")
@@ -25,6 +25,7 @@ class GPT(Module):
         self.lm_head = Dense(d_model, vocab_size)
 
     def forward(self, input_ids):
+        """Public function forward."""
         if input_ids.ndim != 2:
             raise ValueError(f"input_ids must be 2D (batch, seq), got shape {input_ids.shape}.")
 
@@ -40,6 +41,7 @@ class GPT(Module):
         return self.lm_head(x)
 
     def parameters(self):
+        """Public function parameters."""
         params = []
         for layer in (self.token_emb, self.pos_emb, self.blocks, self.ln, self.lm_head):
             params.extend(layer.parameters())

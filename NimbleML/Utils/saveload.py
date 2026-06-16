@@ -1,5 +1,4 @@
-# saveload.py
-# Save and load model parameters (.npz)
+"""Save and load model parameters (.npz)"""
 import numpy as host_np
 
 from NimbleML.neural_network.module import Module, Sequential

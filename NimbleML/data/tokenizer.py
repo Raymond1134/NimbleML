@@ -1,5 +1,4 @@
-# tokenizer.py
-# Placeholder — a real byte-level BPE tokenizer is planned.
+"""Placeholder — a real byte-level BPE tokenizer is planned."""
 # Char-level helpers live in NimbleML.data.text until then.
 
 
@@ -13,6 +12,7 @@ class BPETokenizer:
 
     @property
     def vocab_size(self):
+        """Public function vocab_size."""
         return len(self.vocab) if self.vocab else 256
 
     def _raise(self):
@@ -22,17 +22,22 @@ class BPETokenizer:
         )
 
     def train(self, text, vocab_size, verbose=False, **kwargs):
+        """Public function train."""
         self._raise()
 
     def encode(self, text, verbose=False, **kwargs):
+        """Public function encode."""
         self._raise()
 
     def decode(self, ids):
+        """Public function decode."""
         self._raise()
 
     def save(self, path):
+        """Public function save."""
         self._raise()
 
     @classmethod
     def load(cls, path):
+        """Public function load."""
         cls()._raise()

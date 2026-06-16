@@ -1,5 +1,4 @@
-# text.py
-# Char-level text helpers for language modeling.
+"""Char-level text helpers for language modeling."""
 from NimbleML.utils.tensor import Tensor
 
 

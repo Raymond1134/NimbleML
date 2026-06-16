@@ -1,11 +1,11 @@
-# RMSProp.py
-# RMSProp optimizer
+"""RMSProp optimizer."""
 from NimbleML.utils.np_backend import np
 
 from .optimizer import Optimizer
 
 
 class RMSProp(Optimizer):
+    """Public class RMSProp."""
     def __init__(self, params, learning_rate=0.01, rho=0.9, epsilon=1e-8):
         super().__init__(params, learning_rate=learning_rate)
         self.rho = rho
@@ -13,6 +13,7 @@ class RMSProp(Optimizer):
         self.sq_grad_avg = [np.zeros(param.size, dtype=np.float64) for param in self.params]
 
     def step(self):
+        """Public function step."""
         offset = 0
         for group in self.param_groups:
             lr = group["lr"]

@@ -1,5 +1,4 @@
-# base.py
-# Base learning-rate scheduler
+"""Base learning-rate scheduler"""
 from ..optimizer import Optimizer
 
 
@@ -18,9 +17,11 @@ class LRScheduler:
         self.last_epoch = last_epoch
 
     def get_lr(self):
+        """Public function get_lr."""
         raise NotImplementedError
 
     def step(self, epoch=None):
+        """Public function step."""
         if epoch is None:
             self.last_epoch += 1
         else:

@@ -1,10 +1,11 @@
-# tensor.py
-# Autograd tensor with NumPy/CuPy backend
+"""Autograd tensor with NumPy/CuPy backend"""
 from math import prod
 from . import np_backend
 from .np_backend import np
 
 class Tensor:
+    """Public class Tensor."""
+
     @staticmethod
     def _asarray(data):
         return np.asarray(data, dtype=np_backend.dtype)
@@ -30,25 +31,31 @@ class Tensor:
 
     @property
     def ndim(self):
+        """Public function ndim."""
         return len(self.shape)
 
     @property
     def size(self):
+        """Public function size."""
         return prod(self.shape) if self.shape else 1
 
     @property
     def T(self):
+        """Public function T."""
         return self.transpose()
 
     def item(self):
+        """Public function item."""
         if self.size != 1:
             raise ValueError("Only scalar tensors can be converted to a Python scalar.")
         return float(self.data[0])
 
     def zero_grad(self):
+        """Public function zero_grad."""
         self.grad = np.zeros(self.size, dtype=np_backend.dtype)
 
     def backward(self, grad=None):
+        """Public function backward."""
         if grad is None:
             if self.size != 1:
                 raise ValueError("grad must be specified for non-scalar tensors.")
@@ -66,6 +73,7 @@ class Tensor:
         visited = set()
 
         def build(node):
+            """Public function build."""
             if node not in visited:
                 visited.add(node)
                 for child in node._prev:
@@ -166,6 +174,7 @@ class Tensor:
         return out
 
     def sqrt(self):
+        """Public function sqrt."""
         return self ** 0.5
 
     def __matmul__(self, other):
@@ -300,6 +309,7 @@ class Tensor:
         return out
 
     def relu(self):
+        """Public function relu."""
         arr = self.data
         out_data = np.maximum(arr, 0.0)
         out = Tensor(out_data, self.shape, requires_grad=self.requires_grad, _children=(self,), _op="relu")
@@ -314,6 +324,7 @@ class Tensor:
         return out
 
     def sum(self, axis=None, keepdims=False):
+        """Public function sum."""
         if axis is None:
             reduce_axes = None
         else:
@@ -349,6 +360,7 @@ class Tensor:
         return out
 
     def mean(self, axis=None, keepdims=False):
+        """Public function mean."""
         summed_tensor = self.sum(axis=axis, keepdims=keepdims)
         if axis is None:
             count = float(self.size)
@@ -359,6 +371,7 @@ class Tensor:
         return summed_tensor / count
 
     def reshape(self, new_shape):
+        """Public function reshape."""
         if prod(new_shape) != self.size:
             raise ValueError("New shape must have the same number of elements as the original shape.")
 
@@ -373,6 +386,7 @@ class Tensor:
         return out
 
     def transpose(self):
+        """Public function transpose."""
         if self.ndim != 2:
             raise ValueError("Transpose requires a 2D tensor.")
 
@@ -401,6 +415,7 @@ class Tensor:
             )
 
     def flatten(self, start_dim=0, end_dim=-1):
+        """Public function flatten."""
         if self.ndim == 0:
             if start_dim not in (0, -1) or end_dim not in (0, -1):
                 raise ValueError("start_dim and end_dim must be 0 or -1 for scalar tensors.")
@@ -421,6 +436,7 @@ class Tensor:
         return self.reshape(new_shape)
     
     def squeeze(self, axis=None):
+        """Public function squeeze."""
         if axis is None:
             new_shape = tuple(dim for dim in self.shape if dim != 1)
             return self.reshape(new_shape if new_shape else ())
@@ -445,6 +461,7 @@ class Tensor:
         return self.reshape(new_shape if new_shape else ())
 
     def unsqueeze(self, axis):
+        """Public function unsqueeze."""
         if isinstance(axis, int):
             axis = (axis,)
         elif isinstance(axis, (list, tuple)):

@@ -1,11 +1,11 @@
-# cross_entropy.py
-# Cross-entropy loss (1D, 2D, or 3D sequence logits)
+"""Cross-entropy loss (1D, 2D, or 3D sequence logits)"""
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
 class CrossEntropyLoss:
+    """Public class CrossEntropyLoss."""
     def __call__(self, logits, labels, ignore_index=None):
         return self.forward(logits, labels, ignore_index=ignore_index)
 
@@ -24,6 +24,7 @@ class CrossEntropyLoss:
         return label_arr
 
     def forward(self, logits, labels, ignore_index=None):
+        """Public function forward."""
         out_shape = logits.shape
 
         if logits.ndim == 1:

@@ -1,5 +1,4 @@
-# dense.py
-# Dense (fully connected) layer
+"""Dense (fully connected) layer"""
 from math import sqrt
 from random import uniform
 from NimbleML.neural_network import Module
@@ -7,6 +6,7 @@ from NimbleML.utils.tensor import Tensor
 
 
 class Dense(Module):
+    """Public class Dense."""
     def __init__(self, in_features, out_features, bias=True, weight_scale=None):
         self.in_features = in_features
         self.out_features = out_features
@@ -19,6 +19,7 @@ class Dense(Module):
         self.biases = (Tensor([0.0] * out_features, (out_features,), requires_grad=True) if bias else None)
 
     def forward(self, inputs):
+        """Public function forward."""
         if inputs.shape[-1] != self.in_features:
             raise ValueError(f"Expected last dim {self.in_features}, got {inputs.shape[-1]}")
 
@@ -28,6 +29,7 @@ class Dense(Module):
         return output
 
     def parameters(self):
+        """Public function parameters."""
         params = [self.weights]
         if self.biases is not None:
             params.append(self.biases)

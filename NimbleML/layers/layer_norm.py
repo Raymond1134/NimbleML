@@ -1,11 +1,11 @@
-# layer_norm.py
-# Layer normalization over the last dimension
+"""Layer normalization over the last dimension"""
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
 class LayerNorm(Module):
+    """Public class LayerNorm."""
     def __init__(self, normalized_shape, epsilon=1e-5):
         self.normalized_shape = normalized_shape
         self.epsilon = epsilon
@@ -21,6 +21,7 @@ class LayerNorm(Module):
         )
 
     def forward(self, inputs):
+        """Public function forward."""
         if inputs.shape[-1] != self.normalized_shape:
             raise ValueError(f"Expected last dim {self.normalized_shape}, got {inputs.shape[-1]}")
         
@@ -32,4 +33,5 @@ class LayerNorm(Module):
         return normalized * self.gamma + self.beta
 
     def parameters(self):
+        """Public function parameters."""
         return [self.gamma, self.beta]

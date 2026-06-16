@@ -1,48 +1,64 @@
 # NimbleML
 
-A lightweight Python machine learning library for building and training neural networks from scratch. NimbleML includes autograd tensors, common layers, losses, optimizers, and optional GPU support via CuPy.
+NimbleML is a lightweight Python machine learning library for building and training neural networks from scratch. It includes autograd tensors, standard layers, losses, optimizers, and optional GPU acceleration through CuPy.
 
-## Install
+## Installation
 
-CPU only:
-
-```bash
-python -m pip install numpy
-```
-
-GPU (NVIDIA CUDA, optional — auto-detected when available):
-
-```bash
-python -m pip install numpy cupy-cuda11x
-```
-
-Or install from the project root:
+Install runtime dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Force CPU or GPU with the environment variable `NIMBLEML_DEVICE=cpu` or `NIMBLEML_DEVICE=gpu`.
+Install the package in editable mode:
 
-## What's included
+```bash
+python -m pip install -e .
+```
 
-**Layers:** `Dense`, `Conv2D`, `MaxPool2D`, `Flatten`, `Dropout`, `Embedding`
+Optional GPU support:
 
-**Activations:** `Relu`, `Softmax`
+```bash
+python -m pip install -e ".[gpu]"
+```
 
-**Losses:** `CrossEntropyLoss`
+Development setup:
 
-**Optimizers:** `SGD`, `SGDM`, `NAG`, `RMSProp`, `Adam`
+```bash
+python -m pip install -r requirements-dev.txt
+```
 
-**Core:** `Tensor` (autograd), `Module`, `Sequential`, `forward`, `parameters`, `train` / `eval`, NumPy/CuPy backend (`device`, `using_gpu`, `set_device`)
+## Quick Start
 
-## Tests
+```python
+from NimbleML import Dense, Tensor
+
+x = Tensor([1.0, 2.0, 3.0, 4.0], shape=(2, 2), requires_grad=True)
+layer = Dense(2, 3)
+y = layer.forward(x)
+```
+
+Set execution device explicitly with `NIMBLEML_DEVICE=cpu` or `NIMBLEML_DEVICE=gpu`.
+
+## Included Components
+
+- Layers: `Dense`, `Conv2D`, `MaxPool2D`, `Flatten`, `Dropout`, `Embedding`, `LayerNorm`
+- Activations: `Relu`, `Softmax`
+- Losses: `CrossEntropyLoss`
+- Optimizers: `SGD`, `SGDM`, `NAG`, `RMSProp`, `Adam`
+- Core: `Tensor`, `Module`, `Sequential`, `forward`, `parameters`, `train`, `eval`
+- Schedulers: `StepLR`, `CosineAnnealing`, `LinearWarmup`
+
+## Testing
 
 ```bash
 python test.py
 ```
 
-## Project layout
+## Project Layout
 
-- `NimbleML/` — library source
-- `test.py` — unit tests
+- `NimbleML/`: library source package
+- `test.py`: unit and integration tests
+- `pyproject.toml`: package metadata and build configuration
+- `requirements.txt`: runtime dependencies
+- `requirements-dev.txt`: development tooling dependencies

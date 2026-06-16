@@ -1,5 +1,4 @@
-# _ops.py
-# Shared helpers for layer implementations
+"""Shared helpers for layer implementations"""
 
 
 def _kernel_dims(kernel_size):

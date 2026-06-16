@@ -18,6 +18,7 @@ def _scalar_value(value):
 
 # Estimate d(fn)/d(tensor[index]) with central finite differences.
 def numerical_grad(fn, tensor, index=0, eps=1e-5):
+    """Public function numerical_grad."""
     original = float(np.asarray(tensor.data, dtype=np.float64).ravel()[index])
 
     tensor.data[index] = original + eps
@@ -32,6 +33,7 @@ def numerical_grad(fn, tensor, index=0, eps=1e-5):
 
 # Compare analytic gradients from backward() to numerical_grad.
 def gradcheck(fn, tensors, eps=1e-4, tol=1e-3):
+    """Public function gradcheck."""
     if not tensors:
         raise ValueError("gradcheck requires at least one tensor.")
 
@@ -59,6 +61,7 @@ def gradcheck(fn, tensors, eps=1e-4, tol=1e-3):
 
         for index in range(tensor.size):
             def scalar_fn():
+                """Public function scalar_fn."""
                 for t in tensors:
                     t.grad = None
                 return _scalar_value(fn())

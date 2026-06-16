@@ -1,14 +1,15 @@
-# sgd.py
-# Stochastic gradient descent
+"""Stochastic gradient descent"""
 from NimbleML.utils.np_backend import np
 from .optimizer import Optimizer
 
 
 class SGD(Optimizer):
+    """Public class SGD."""
     def __init__(self, params, learning_rate=0.01):
         super().__init__(params, learning_rate=learning_rate)
 
     def step(self):
+        """Public function step."""
         for group in self.param_groups:
             lr = group["lr"]
             for param in group["params"]:

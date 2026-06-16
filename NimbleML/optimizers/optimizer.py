@@ -1,5 +1,4 @@
-# optimizer.py
-# Base class for optimizers
+"""Base class for optimizers"""
 
 
 class Optimizer:
@@ -32,10 +31,12 @@ class Optimizer:
 
     @property
     def learning_rate(self):
+        """Public function learning_rate."""
         return self.param_groups[0]["lr"]
 
     @learning_rate.setter
     def learning_rate(self, value):
+        """Public function learning_rate."""
         for group in self.param_groups:
             group["lr"] = value
 
@@ -53,8 +54,10 @@ class Optimizer:
             group["lr"] = lr
 
     def step(self):
+        """Public function step."""
         raise NotImplementedError("Optimizer.step must be implemented by subclasses.")
 
     def zero_grad(self):
+        """Public function zero_grad."""
         for param in self.params:
             param.zero_grad()

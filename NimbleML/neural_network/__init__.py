@@ -1,3 +1,5 @@
+"""Package exports and public API surface."""
+
 from .module import Module, Sequential, residual
 
 __all__ = [

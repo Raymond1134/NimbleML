@@ -1,5 +1,4 @@
-# embedding.py
-# Embedding layer (token ID lookup table)
+"""Embedding layer (token ID lookup table)"""
 from NimbleML.neural_network import Module
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
@@ -7,6 +6,7 @@ from NimbleML.utils.tensor import Tensor
 
 
 class Embedding(Module):
+    """Public class Embedding."""
     def __init__(self, vocab_size, embed_dim):
         self.vocab_size = vocab_size
         self.embed_dim = embed_dim
@@ -17,6 +17,7 @@ class Embedding(Module):
         )
 
     def forward(self, inputs):
+        """Public function forward."""
         ids = np.asarray(inputs, dtype=np.int64).reshape(-1)
         if ids.size and (ids.min() < 0 or ids.max() >= self.vocab_size):
             raise ValueError(f"Token ID out of range [0, {self.vocab_size})")
@@ -48,4 +49,5 @@ class Embedding(Module):
         return output
 
     def parameters(self):
+        """Public function parameters."""
         return [self.weights]

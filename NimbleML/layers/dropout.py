@@ -1,11 +1,11 @@
-# dropout.py
-# Dropout regularization layer
+"""Dropout regularization layer"""
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
 class Dropout(Module):
+    """Public class Dropout."""
     def __init__(self, probability=0.5):
         if not 0 <= probability < 1:
             raise ValueError("Dropout probability must be in [0, 1).")
@@ -13,6 +13,7 @@ class Dropout(Module):
         self.training = True
 
     def forward(self, inputs):
+        """Public function forward."""
         if not self.training or self.probability == 0:
             return inputs
 
@@ -37,7 +38,9 @@ class Dropout(Module):
         return out
 
     def train(self):
+        """Public function train."""
         self.training = True
 
     def eval(self):
+        """Public function eval."""
         self.training = False

@@ -1,5 +1,4 @@
-# softmax.py
-# Softmax activation (1D+ tensors, softmax over last axis)
+"""Softmax activation (1D+ tensors, softmax over last axis)"""
 from math import prod
 
 from NimbleML.neural_network import Module
@@ -8,10 +7,12 @@ from NimbleML.utils.tensor import Tensor
 
 
 class Softmax(Module):
+    """Public class Softmax."""
     def __init__(self, axis=-1):
         self.axis = axis
 
     def forward(self, inputs):
+        """Public function forward."""
         if self.axis != -1:
             raise NotImplementedError("Only axis=-1 is supported.")
 
