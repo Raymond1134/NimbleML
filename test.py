@@ -7,7 +7,6 @@ from NimbleML.utils.np_backend import set_dtype
 set_dtype("float64")
 
 from NimbleML.data.text import batch_sequences, build_vocab, decode, encode, load_text
-from NimbleML.data.tokenizer import BPETokenizer
 from NimbleML.layers.conv2D import Conv2D, _im2col
 from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
@@ -246,36 +245,6 @@ def test_text_encode_decode_roundtrip():
     char_to_idx, idx_to_char = build_vocab(text)
     ids = encode(text, char_to_idx)
     assert decode(ids, idx_to_char) == text
-
-
-def test_bpe_roundtrip():
-    text = ("the quick brown fox jumps over the lazy dog. "
-            "pack my box with five dozen liquor jugs.\n") * 40
-    tok = BPETokenizer().train(text, vocab_size=300)
-    # Training may stop early once no mergeable pairs remain.
-    assert 256 < tok.vocab_size <= 300
-    sample = "the quick brown fox jumps over the lazy dog."
-    ids = tok.encode(sample)
-    assert all(isinstance(i, int) for i in ids)
-    assert tok.decode(ids) == sample
-    # Merges should compress relative to raw bytes.
-    assert len(ids) < len(sample.encode("utf-8"))
-    # Byte-level fallback handles unseen characters.
-    assert tok.decode(tok.encode("xyz 漢字!")) == "xyz 漢字!"
-
-
-def test_bpe_save_load(tmp_path_factory=None):
-    text = "hello world hello bpe world\n" * 30
-    tok = BPETokenizer().train(text, vocab_size=290)
-    path = Path(__file__).resolve().parent / "_tmp_tokenizer_test.json"
-    try:
-        tok.save(path)
-        loaded = BPETokenizer.load(path)
-        assert loaded.vocab_size == tok.vocab_size
-        assert loaded.encode("hello world") == tok.encode("hello world")
-    finally:
-        if path.exists():
-            path.unlink()
 
 
 def test_batch_sequences():
@@ -564,8 +533,6 @@ def main():
     test_gradcheck_matmul_3d()
     test_dense_3d()
     test_text_encode_decode_roundtrip()
-    test_bpe_roundtrip()
-    test_bpe_save_load()
     test_sequence_cross_entropy()
     test_load_text()
     test_batch_sequences()

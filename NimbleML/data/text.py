@@ -1,7 +1,5 @@
 # text.py
-# Text utilities for language modeling (char-level and BPE token-level)
-import os
-from NimbleML.data.tokenizer import BPETokenizer
+# Char-level text helpers for language modeling.
 from NimbleML.utils.tensor import Tensor
 
 
@@ -86,45 +84,3 @@ def batch_sequences(ids, batch_size, seq_len=None):
             for i in range(batch_size)
         ]
         yield _rows_to_tensors(rows)
-
-
-def _encode_corpus(text, tokenizer, verbose=False):
-    """Encode a full corpus. The tokenizer caches per pre-token chunk, so repeated
-    words across the corpus are encoded only once."""
-    return tokenizer.encode(text, verbose=verbose)
-
-
-def load_text_bpe(path, tokenizer_path=None, vocab_size=1024, max_train_chars=1_000_000, verbose=True):
-    """Load a corpus as BPE token ids, training (and caching) the tokenizer if needed.
-
-    Returns (ids, tokenizer). If `tokenizer_path` exists it is loaded; otherwise a
-    new tokenizer is trained on the corpus and saved to `tokenizer_path` (if given).
-
-    The naive BPE trainer is O(merges * corpus) in pure Python, so merges are learned
-    from at most `max_train_chars` characters of the corpus (the full corpus is still
-    encoded). Set `max_train_chars=0` to train on everything.
-    """
-    with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    if tokenizer_path is not None and os.path.exists(tokenizer_path):
-        tokenizer = BPETokenizer.load(tokenizer_path)
-        if verbose:
-            print(f"Loaded tokenizer from {tokenizer_path} (vocab={tokenizer.vocab_size}).")
-    else:
-        train_text = text if max_train_chars <= 0 else text[:max_train_chars]
-        if verbose:
-            print(
-                f"Training BPE tokenizer (target vocab={vocab_size}) "
-                f"on {len(train_text):,} chars..."
-            )
-        tokenizer = BPETokenizer().train(train_text, vocab_size, verbose=verbose)
-        if tokenizer_path is not None:
-            tokenizer.save(tokenizer_path)
-            if verbose:
-                print(f"Saved tokenizer to {tokenizer_path}.")
-
-    if verbose:
-        print(f"Encoding corpus ({len(text):,} chars)...")
-    ids = _encode_corpus(text, tokenizer, verbose=verbose)
-    return ids, tokenizer

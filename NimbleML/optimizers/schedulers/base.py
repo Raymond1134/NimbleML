@@ -1,6 +1,6 @@
-# schedulers.py
-# Learning-rate schedulers
-from .optimizer import Optimizer
+# base.py
+# Base learning-rate scheduler
+from ..optimizer import Optimizer
 
 
 class LRScheduler:
