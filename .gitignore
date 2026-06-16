@@ -219,4 +219,6 @@ __marimo__/
 
 todo.txt
 
-toyGPT/
+toyGPT/data/cache/
+toyGPT/checkpoints/
+toyGPT/data/tokenizer.json

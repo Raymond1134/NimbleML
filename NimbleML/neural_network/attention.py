@@ -1,7 +1,8 @@
-"""Scaled dot-product attention (single-head)"""
+"""Scaled dot-product attention (single-head and multi-head)"""
 from functools import lru_cache
+from math import prod
+
 from NimbleML.layers import Dense
-from NimbleML.activations import Softmax
 from NimbleML.neural_network import Module
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
@@ -20,45 +21,49 @@ def causal_mask_tensor(seq_len):
     mask_arr = np.asarray(make_causal_mask(seq_len), dtype=np_backend.dtype)
     return Tensor(mask_arr.ravel(), mask_arr.shape, requires_grad=False)
 
-def _swap_last_two(tensor):
-    shape = tensor.shape
-    if len(shape) < 2:
-        raise ValueError("swap_last_two needs at least 2 dimensions.")
 
-    arr = Tensor._asarray(tensor.data).reshape(shape)
-    out_arr = np.swapaxes(arr, -2, -1)
-    out_shape = shape[:-2] + (shape[-1], shape[-2])
-    out = Tensor(
-        out_arr.ravel(),
-        out_shape,
-        requires_grad=tensor.requires_grad,
-        _children=(tensor,),
-        _op="swap_last_two",
-    )
+def _resolve_mask(mask, seq_len):
+    if mask is None:
+        return None
+    if isinstance(mask, Tensor):
+        mask_tensor = mask
+        if mask_tensor.shape != (seq_len, seq_len):
+            raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_tensor.shape}")
+        return Tensor._asarray(mask_tensor.data).reshape(mask_tensor.shape)
+    mask_arr = np.asarray(mask, dtype=np_backend.dtype)
+    if mask_arr.shape != (seq_len, seq_len):
+        raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_arr.shape}")
+    return mask_arr
 
-    def _backward():
-        if out.grad is None or not tensor.requires_grad:
-            return
-        grad_out = out.grad.reshape(out_shape)
-        grad_in = np.swapaxes(grad_out, -2, -1)
-        tensor._accumulate_grad(grad_in.ravel())
 
-    out._backward = _backward
-    return out
+def _softmax_last_axis(scores):
+    max_vals = np.max(scores, axis=-1, keepdims=True)
+    exps = np.exp(scores - max_vals)
+    return exps / np.sum(exps, axis=-1, keepdims=True)
+
+
+def _softmax_last_axis_backward(grad_out, probs, row_count, last_dim):
+    grad_out_2d = grad_out.reshape(row_count, last_dim)
+    probs_2d = probs.reshape(row_count, last_dim)
+    dot = np.sum(grad_out_2d * probs_2d, axis=1, keepdims=True)
+    return (probs_2d * (grad_out_2d - dot)).reshape(grad_out.shape)
 
 
 def _split_heads(tensor, batch, seq_len, num_heads, d_k):
     """(batch, seq, d_model) -> (batch * num_heads, seq, d_k)."""
+    expected = (batch, seq_len, num_heads * d_k)
+    if tensor.shape != expected:
+        raise ValueError(f"Expected shape {expected}, got {tensor.shape}")
+
     shape_4d = (batch, seq_len, num_heads, d_k)
-    t = tensor.reshape(shape_4d)
-    arr = Tensor._asarray(t.data).reshape(shape_4d)
+    arr = Tensor._asarray(tensor.data).reshape(shape_4d)
     out_arr = np.transpose(arr, (0, 2, 1, 3))
     out_shape = (batch * num_heads, seq_len, d_k)
     out = Tensor(
         out_arr.ravel(),
         out_shape,
         requires_grad=tensor.requires_grad,
-        _children=(t,),
+        _children=(tensor,),
         _op="split_heads",
     )
 
@@ -67,7 +72,7 @@ def _split_heads(tensor, batch, seq_len, num_heads, d_k):
             return
         grad_out = out.grad.reshape(batch, num_heads, seq_len, d_k)
         grad_in = np.transpose(grad_out, (0, 2, 1, 3))
-        t._accumulate_grad(grad_in.ravel())
+        tensor._accumulate_grad(grad_in.ravel())
 
     out._backward = _backward
     return out
@@ -75,16 +80,19 @@ def _split_heads(tensor, batch, seq_len, num_heads, d_k):
 
 def _merge_heads(tensor, batch, seq_len, num_heads, d_k):
     """(batch * num_heads, seq, d_k) -> (batch, seq, d_model)."""
+    expected = (batch * num_heads, seq_len, d_k)
+    if tensor.shape != expected:
+        raise ValueError(f"Expected shape {expected}, got {tensor.shape}")
+
     shape_4d = (batch, num_heads, seq_len, d_k)
-    t = tensor.reshape(shape_4d)
-    arr = Tensor._asarray(t.data).reshape(shape_4d)
+    arr = Tensor._asarray(tensor.data).reshape(shape_4d)
     out_arr = np.transpose(arr, (0, 2, 1, 3))
     out_shape = (batch, seq_len, num_heads * d_k)
     out = Tensor(
         out_arr.ravel(),
         out_shape,
         requires_grad=tensor.requires_grad,
-        _children=(t,),
+        _children=(tensor,),
         _op="merge_heads",
     )
 
@@ -93,7 +101,70 @@ def _merge_heads(tensor, batch, seq_len, num_heads, d_k):
             return
         grad_out = out.grad.reshape(batch, seq_len, num_heads, d_k)
         grad_in = np.transpose(grad_out, (0, 2, 1, 3))
-        t._accumulate_grad(grad_in.ravel())
+        tensor._accumulate_grad(grad_in.ravel())
+
+    out._backward = _backward
+    return out
+
+
+def scaled_dot_product_attention(Q, K, V, scale, mask=None):
+    """
+    Fused attention: QK^T / scale, optional mask, softmax, @V.
+
+    Q, K, V: (batch, seq, d_k).
+    mask: optional (seq, seq) additive mask (Tensor or array).
+    """
+    q_shape = Q.shape
+    if Q.shape != K.shape or Q.shape != V.shape:
+        raise ValueError(
+            f"Expected Q/K/V shapes to match, got {Q.shape}, {K.shape}, {V.shape}"
+        )
+    if Q.ndim != 3:
+        raise ValueError(f"Expected 3D Q/K/V, got ndim={Q.ndim}")
+
+    seq_len = q_shape[-2]
+    mask_arr = _resolve_mask(mask, seq_len)
+
+    q_arr = Tensor._asarray(Q.data).reshape(q_shape)
+    k_arr = Tensor._asarray(K.data).reshape(q_shape)
+    v_arr = Tensor._asarray(V.data).reshape(q_shape)
+
+    scores = np.matmul(q_arr, np.swapaxes(k_arr, -2, -1)) / scale
+    if mask_arr is not None:
+        scores = scores + mask_arr
+    probs = _softmax_last_axis(scores)
+    out_arr = np.matmul(probs, v_arr)
+
+    requires_grad = Q.requires_grad or K.requires_grad or V.requires_grad
+    out = Tensor(
+        out_arr.ravel(),
+        out_arr.shape,
+        requires_grad=requires_grad,
+        _children=(Q, K, V),
+        _op="scaled_dot_product_attention",
+    )
+
+    def _backward():
+        if out.grad is None:
+            return
+
+        grad_out = Tensor._asarray(out.grad).reshape(out_arr.shape)
+        scale_f = float(scale)
+        grad_probs = np.matmul(grad_out, np.swapaxes(v_arr, -2, -1))
+        row_count = prod(q_shape[:-1])
+        last_dim = q_shape[-2]
+        grad_scores = _softmax_last_axis_backward(grad_probs, probs, row_count, last_dim)
+        grad_scores = grad_scores / scale_f
+
+        if Q.requires_grad:
+            grad_q = np.matmul(grad_scores, k_arr)
+            Q._accumulate_grad(grad_q.ravel())
+        if K.requires_grad:
+            grad_k = np.matmul(np.swapaxes(grad_scores, -2, -1), q_arr)
+            K._accumulate_grad(grad_k.ravel())
+        if V.requires_grad:
+            grad_v = np.matmul(np.swapaxes(probs, -2, -1), grad_out)
+            V._accumulate_grad(grad_v.ravel())
 
     out._backward = _backward
     return out
@@ -104,7 +175,6 @@ class Attention(Module):
     def __init__(self, d_k):
         self.d_k = d_k
         self.scale = float(d_k) ** 0.5
-        self.softmax = Softmax(axis=-1)
 
     def forward(self, Q, K, V, mask=None):
         """Public function forward."""
@@ -119,24 +189,7 @@ class Attention(Module):
         if Q.shape[-1] != self.d_k:
             raise ValueError(f"Expected last dim {self.d_k}, got {Q.shape[-1]}")
 
-        batch, seq_len, _ = Q.shape
-        scores = Q @ _swap_last_two(K)
-        scores = scores / self.scale
-
-        if mask is not None:
-            if isinstance(mask, Tensor):
-                mask_tensor = mask
-                if mask_tensor.shape != (seq_len, seq_len):
-                    raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_tensor.shape}")
-            else:
-                mask_arr = np.asarray(mask, dtype=np_backend.dtype)
-                if mask_arr.shape != (seq_len, seq_len):
-                    raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_arr.shape}")
-                mask_tensor = Tensor(mask_arr.ravel(), mask_arr.shape, requires_grad=False)
-            scores = scores + mask_tensor
-
-        weights = self.softmax(scores)
-        return weights @ V
+        return scaled_dot_product_attention(Q, K, V, self.scale, mask=mask)
 
     def parameters(self):
         """Public function parameters."""
@@ -155,7 +208,7 @@ class MultiHeadAttention(Module):
         self.W_k = Dense(d_model, d_model)
         self.W_v = Dense(d_model, d_model)
         self.W_o = Dense(d_model, d_model)
-        self.attention = Attention(d_k=self.d_k)
+        self.scale = float(self.d_k) ** 0.5
 
     def forward(self, x, mask=None):
         """Public function forward."""
@@ -167,7 +220,7 @@ class MultiHeadAttention(Module):
         K = _split_heads(self.W_k(x), batch, seq_len, self.num_heads, self.d_k)
         V = _split_heads(self.W_v(x), batch, seq_len, self.num_heads, self.d_k)
 
-        out = self.attention.forward(Q, K, V, mask=mask)
+        out = scaled_dot_product_attention(Q, K, V, self.scale, mask=mask)
         out = _merge_heads(out, batch, seq_len, self.num_heads, self.d_k)
         return self.W_o(out)
 

@@ -50,9 +50,12 @@ class Tensor:
             raise ValueError("Only scalar tensors can be converted to a Python scalar.")
         return float(self.data[0])
 
-    def zero_grad(self):
-        """Public function zero_grad."""
-        self.grad = np.zeros(self.size, dtype=np_backend.dtype)
+    def zero_grad(self, set_to_none: bool = False):
+        """Clear gradients. With ``set_to_none=True``, drop refs instead of zero-fill."""
+        if set_to_none:
+            self.grad = None
+        else:
+            self.grad = np.zeros(self.size, dtype=np_backend.dtype)
 
     def backward(self, grad=None):
         """Public function backward."""
@@ -250,6 +253,8 @@ class Tensor:
         """
         Matrix multiply via np.matmul (supports batched leading dims).
 
+        On GPU, ``np`` is CuPy and ``matmul`` dispatches to cuBLAS GEMM.
+
         Examples: (B, C) @ (C, D), (B, T, C) @ (C, D), (m, k) @ (k, n).
         """
         other = self._ensure_tensor(other)
@@ -319,6 +324,30 @@ class Tensor:
             if out.grad is None or not self.requires_grad:
                 return
             self._accumulate_grad(out.grad * mask)
+
+        out._backward = _backward
+        return out
+
+    def gelu(self):
+        """GELU activation (tanh approximation, GPU-safe)."""
+        from NimbleML.activations.gelu import gelu_backward, gelu_forward
+
+        arr = Tensor._asarray(self.data).reshape(self.shape) if self.shape else Tensor._asarray(self.data)
+        out_data, tanh_u = gelu_forward(arr)
+        out = Tensor(
+            out_data.ravel(),
+            self.shape,
+            requires_grad=self.requires_grad,
+            _children=(self,),
+            _op="gelu",
+        )
+
+        def _backward():
+            if out.grad is None or not self.requires_grad:
+                return
+            grad_out = Tensor._asarray(out.grad).reshape(arr.shape)
+            grad = gelu_backward(grad_out, arr, tanh_u)
+            self._accumulate_grad(grad.ravel())
 
         out._backward = _backward
         return out

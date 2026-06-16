@@ -1,5 +1,5 @@
 """Dense (fully connected) layer"""
-from math import sqrt
+from math import prod, sqrt
 from random import uniform
 from NimbleML.neural_network import Module
 from NimbleML.utils.tensor import Tensor
@@ -22,6 +22,15 @@ class Dense(Module):
         """Public function forward."""
         if inputs.shape[-1] != self.in_features:
             raise ValueError(f"Expected last dim {self.in_features}, got {inputs.shape[-1]}")
+
+        if inputs.ndim > 2:
+            in_shape = inputs.shape
+            row_count = prod(in_shape[:-1])
+            x2d = inputs.reshape((row_count, self.in_features))
+            output = x2d @ self.weights
+            if self.biases is not None:
+                output = output + self.biases
+            return output.reshape(in_shape[:-1] + (self.out_features,))
 
         output = inputs @ self.weights
         if self.biases is not None:

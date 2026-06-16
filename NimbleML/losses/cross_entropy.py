@@ -4,8 +4,35 @@ from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
+def _softmax_rows(logits_arr):
+    max_vals = np.max(logits_arr, axis=1, keepdims=True)
+    shifted = logits_arr - max_vals
+    exps = np.exp(shifted)
+    return exps / np.sum(exps, axis=1, keepdims=True)
+
+
+def _log_softmax_cross_entropy(logits_arr, label_indices):
+    """Mean negative log-likelihood without storing softmax probabilities."""
+    max_vals = np.max(logits_arr, axis=1, keepdims=True)
+    shifted = logits_arr - max_vals
+    log_sum_exp = max_vals.ravel() + np.log(np.sum(np.exp(shifted), axis=1))
+    correct_logits = logits_arr[np.arange(label_indices.size), label_indices]
+    per_sample = log_sum_exp - correct_logits
+    return float(np.sum(per_sample) / label_indices.size)
+
+
+def _cross_entropy_logits_grad(logits_arr, label_indices, flat_batch):
+    """Gradient w.r.t. logits: (softmax - one_hot) / batch_size."""
+    probs = _softmax_rows(logits_arr)
+    grad = probs
+    grad[np.arange(flat_batch), label_indices] -= 1.0
+    grad /= flat_batch
+    return grad
+
+
 class CrossEntropyLoss:
-    """Public class CrossEntropyLoss."""
+    """Fused softmax + log + mean cross-entropy for 1D/2D/3D logits."""
+
     def __call__(self, logits, labels, ignore_index=None):
         return self.forward(logits, labels, ignore_index=ignore_index)
 
@@ -28,35 +55,30 @@ class CrossEntropyLoss:
         out_shape = logits.shape
 
         if logits.ndim == 1:
-            flat_batch = 1
+            total_batch = 1
             class_count = logits.shape[0]
-            logits_arr = logits.data.reshape(1, class_count)
+            logits_arr = Tensor._asarray(logits.data).reshape(1, class_count)
         elif logits.ndim == 2:
-            flat_batch, class_count = logits.shape
-            logits_arr = logits.data.reshape(flat_batch, class_count)
+            total_batch, class_count = logits.shape
+            logits_arr = Tensor._asarray(logits.data).reshape(total_batch, class_count)
         elif logits.ndim == 3:
-            flat_batch = logits.shape[0] * logits.shape[1]
+            total_batch = logits.shape[0] * logits.shape[1]
             class_count = logits.shape[2]
-            logits_arr = logits.data.reshape(flat_batch, class_count)
+            logits_arr = Tensor._asarray(logits.data).reshape(total_batch, class_count)
         else:
             raise ValueError("CrossEntropyLoss expects 1D, 2D, or 3D logits.")
 
-        label_indices = self._flatten_labels(labels, flat_batch)
-        valid = np.ones(flat_batch, dtype=bool)
+        label_indices = self._flatten_labels(labels, total_batch)
+        valid = np.ones(total_batch, dtype=bool)
         if ignore_index is not None:
             valid = label_indices != ignore_index
             if not np.any(valid):
                 return Tensor([0.0], (), requires_grad=logits.requires_grad)
             logits_arr = logits_arr[valid]
             label_indices = label_indices[valid]
-            flat_batch = int(label_indices.size)
 
-        max_vals = np.max(logits_arr, axis=1, keepdims=True)
-        exps = np.exp(logits_arr - max_vals)
-        probabilities = exps / np.sum(exps, axis=1, keepdims=True)
-
-        correct_probs = probabilities[np.arange(flat_batch), label_indices]
-        loss = float(-np.sum(np.log(np.maximum(correct_probs, 1e-12))) / flat_batch)
+        flat_batch = int(label_indices.size)
+        loss = _log_softmax_cross_entropy(logits_arr, label_indices)
 
         output = Tensor(
             [loss],
@@ -67,23 +89,31 @@ class CrossEntropyLoss:
         )
 
         def _backward():
-            if not logits.requires_grad:
+            if output.grad is None or not logits.requires_grad:
                 return
 
-            grad = probabilities.copy()
-            grad[np.arange(flat_batch), label_indices] -= 1.0
-            grad /= flat_batch
+            grad_scale = float(output.grad.reshape(-1)[0])
+            full_logits = Tensor._asarray(logits.data).reshape(total_batch, class_count)
+            if ignore_index is not None:
+                active_logits = full_logits[valid]
+            else:
+                active_logits = full_logits
+
+            grad = _cross_entropy_logits_grad(active_logits, label_indices, flat_batch)
+            grad *= grad_scale
 
             if ignore_index is not None:
-                full_grad = np.zeros((int(np.prod(out_shape[:-1])), class_count), dtype=np_backend.dtype)
+                full_grad = np.zeros((total_batch, class_count), dtype=np_backend.dtype)
                 full_grad[valid] = grad
-                grad = full_grad.reshape(out_shape) if logits.ndim == 3 else full_grad.reshape(out_shape)
-            elif logits.ndim == 3:
-                grad = grad.reshape(out_shape)
-            elif logits.ndim == 1:
-                grad = grad.reshape(out_shape)
+            else:
+                full_grad = grad
 
-            logits._accumulate_grad(grad.ravel())
+            if logits.ndim == 3:
+                full_grad = full_grad.reshape(out_shape)
+            elif logits.ndim == 1:
+                full_grad = full_grad.reshape(out_shape)
+
+            logits._accumulate_grad(full_grad.ravel())
 
         output._backward = _backward
         return output

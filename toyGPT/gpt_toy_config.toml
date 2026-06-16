@@ -1,0 +1,45 @@
+# Toy GPT training config — paths are relative to the toyGPT/ folder unless absolute.
+
+[model]
+# BPE vocabulary size (byte-level BPE: 256 base tokens + merges)
+vocab_size = 16384
+d_model = 512
+n_layer = 18
+n_head = 8
+seq_len = 256
+ff_mult = 4
+
+[train]
+batch_size = 16
+lr = 3.0e-4
+weight_decay = 0.1
+warmup_steps = 100
+max_steps = 5000
+grad_clip = 1.0
+dtype = "float32"
+device = "gpu"
+checkpoint_every = 500
+checkpoint_dir = "checkpoints"
+
+[data]
+dataset = "wikitext-2"
+data_dir = "data"
+cache_dir = "data/cache"
+tokenizer_path = "data/tokenizer.json"
+# 0 = use full train split for BPE training; set e.g. 10_000_000 to cap
+tokenizer_max_chars = 0
+
+[eval]
+eval_every = 200
+eval_batches = 20
+sample_chars = 200
+temperature = 0.8
+
+[log]
+verbose = 1
+log_every = 1
+bpe_log_every = 5
+rolling_avg = 50
+
+[seed]
+seed = 42

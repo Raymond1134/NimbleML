@@ -7,5 +7,6 @@ from .embedding import Embedding
 from .flatten import Flatten
 from .layer_norm import LayerNorm
 from .maxpool2d import MaxPool2D
+from .rms_norm import RMSNorm
 
-__all__ = ["Conv2D", "Dense", "Dropout", "Embedding", "Flatten", "LayerNorm", "MaxPool2D"]
+__all__ = ["Conv2D", "Dense", "Dropout", "Embedding", "Flatten", "LayerNorm", "MaxPool2D", "RMSNorm"]

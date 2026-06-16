@@ -57,7 +57,7 @@ class Optimizer:
         """Public function step."""
         raise NotImplementedError("Optimizer.step must be implemented by subclasses.")
 
-    def zero_grad(self):
-        """Public function zero_grad."""
+    def zero_grad(self, set_to_none: bool = False):
+        """Clear parameter gradients."""
         for param in self.params:
-            param.zero_grad()
+            param.zero_grad(set_to_none=set_to_none)

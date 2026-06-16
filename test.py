@@ -11,7 +11,7 @@ from NimbleML.neural_network.attention import Attention, make_causal_mask
 from NimbleML.optimizers import SGD, StepLR
 from NimbleML.utils.clip_grad import clip_grad_norm_
 from NimbleML.utils.np_backend import np, set_dtype
-from NimbleML.utils.saveload import load, save
+from NimbleML.utils.saveload import load, named_parameters, save
 from NimbleML.utils.tensor import Tensor
 
 # Keep numeric checks stable for strict assertions.
@@ -92,11 +92,69 @@ def test_softmax_normalization_and_grad():
 def test_attention_shape_with_causal_mask():
     batch, seq_len, d_k = 2, 4, 8
     rng = np.random.default_rng(0)
-    q = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k))
-    k = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k))
-    v = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k))
+    q = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k), requires_grad=True)
+    k = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k), requires_grad=True)
+    v = Tensor(rng.standard_normal((batch, seq_len, d_k)).ravel(), (batch, seq_len, d_k), requires_grad=True)
     out = Attention(d_k).forward(q, k, v, mask=make_causal_mask(seq_len))
     assert out.shape == (batch, seq_len, d_k)
+    out.sum().backward()
+    assert q.grad is not None
+    assert k.grad is not None
+    assert v.grad is not None
+
+
+def test_multi_head_attention_forward_backward():
+    from NimbleML.neural_network.attention import MultiHeadAttention, causal_mask_tensor
+
+    batch, seq_len, d_model, num_heads = 2, 8, 32, 4
+    mha = MultiHeadAttention(d_model, num_heads)
+    x = Tensor(
+        np.random.default_rng(1).standard_normal((batch, seq_len, d_model)).astype(np.float32).ravel(),
+        (batch, seq_len, d_model),
+        requires_grad=True,
+    )
+    out = mha.forward(x, mask=causal_mask_tensor(seq_len))
+    assert out.shape == (batch, seq_len, d_model)
+    out.sum().backward()
+    assert x.grad is not None
+
+
+def test_rms_norm_forward_shape():
+    from NimbleML.layers import RMSNorm
+
+    ln = RMSNorm(8)
+    x = Tensor(np.linspace(0.1, 0.8, 16, dtype=np.float64), (2, 8), requires_grad=True)
+    out = ln.forward(x)
+    assert out.shape == (2, 8)
+    out.sum().backward()
+    assert x.grad is not None
+    assert ln.gamma.grad is not None
+
+
+def test_gelu_forward_backward():
+    x = Tensor(np.linspace(-1.0, 1.0, 4, dtype=np.float64), (4,), requires_grad=True)
+    out = x.gelu()
+    assert out.shape == (4,)
+    out.sum().backward()
+    assert x.grad is not None
+
+
+def test_feedforward_forward_backward():
+    from NimbleML.neural_network.feed_forward import FeedForward
+
+    batch, seq_len, d_model = 2, 8, 32
+    ff = FeedForward(d_model, ff_mult=4)
+    x = Tensor(
+        np.random.default_rng(2).standard_normal((batch, seq_len, d_model)).astype(np.float64).ravel(),
+        (batch, seq_len, d_model),
+        requires_grad=True,
+    )
+    out = ff.forward(x)
+    assert out.shape == (batch, seq_len, d_model)
+    out.sum().backward()
+    assert x.grad is not None
+    for p in ff.parameters():
+        assert p.grad is not None
 
 
 def test_gpt_forward_shape():
@@ -106,6 +164,100 @@ def test_gpt_forward_shape():
     input_ids = Tensor(np.tile(np.arange(seq_len, dtype=np.float64), batch), (batch, seq_len))
     logits = model.forward(input_ids)
     assert logits.shape == (batch, seq_len, vocab_size)
+
+
+def test_gpt_tied_weights_no_lm_head():
+    model = GPT(64, 32, 4, 2, 8)
+    assert not hasattr(model, "lm_head")
+    names = [name for name, _ in named_parameters(model)]
+    assert names.count("token_emb.weights") == 1
+    assert not any(name.startswith("lm_head") for name in names)
+
+
+def test_gpt_pos_encoding_prefix():
+    pos_emb = Embedding(16, 8)
+    out = pos_emb.forward_prefix(4)
+    assert out.shape == (4, 8)
+    out.sum().backward()
+    grad = np.asarray(pos_emb.weights.grad).reshape(16, 8)
+    assert np.allclose(grad[:4], np.ones((4, 8)))
+    assert np.allclose(grad[4:], np.zeros((12, 8)))
+
+
+def test_cross_entropy_3d_forward_backward():
+    from NimbleML.losses import CrossEntropyLoss
+
+    loss_fn = CrossEntropyLoss()
+    logits = Tensor(
+        np.random.default_rng(3).standard_normal((2, 3, 5)).astype(np.float64).ravel(),
+        (2, 3, 5),
+        requires_grad=True,
+    )
+    labels = Tensor(np.array([1, 2, 0, 4, 3, 1], dtype=np.int64), (2, 3))
+    loss = loss_fn(logits, labels)
+    assert loss.shape == ()
+    loss.backward()
+    assert logits.grad is not None
+
+
+def test_cross_entropy_ignore_index():
+    from NimbleML.losses import CrossEntropyLoss
+
+    loss_fn = CrossEntropyLoss()
+    logits = Tensor(np.linspace(-1, 1, 12, dtype=np.float64), (2, 2, 3), requires_grad=True)
+    labels = Tensor(np.array([0, -1, 2, 1], dtype=np.int64), (2, 2))
+    loss = loss_fn(logits, labels, ignore_index=-1)
+    loss.backward()
+    grad = np.asarray(logits.grad).reshape(2, 2, 3)
+    assert np.allclose(grad[0, 1], np.zeros(3))
+    assert np.any(grad != 0)
+
+
+def test_gpt_checkpoint_save_load(tmp_path=None):
+    ckpt_path = Path(__file__).parent / "_test_ckpt_gpt.npz" if tmp_path is None else tmp_path / "gpt.npz"
+    try:
+        vocab_size, d_model, num_heads, num_layers, max_seq_len = 40, 24, 4, 2, 8
+        batch, seq_len = 2, 8
+        model = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
+        input_ids = Tensor(np.tile(np.arange(seq_len, dtype=np.float64), batch), (batch, seq_len))
+        expected = np.asarray(model.forward(input_ids).data).reshape(batch, seq_len, vocab_size)
+        save(model, ckpt_path)
+        fresh = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
+        load(fresh, ckpt_path)
+        actual = np.asarray(fresh.forward(input_ids).data).reshape(batch, seq_len, vocab_size)
+        assert np.allclose(expected, actual, atol=1e-5)
+        assert not any(name.startswith("lm_head") for name, _ in named_parameters(fresh))
+    finally:
+        if tmp_path is None and ckpt_path.exists():
+            ckpt_path.unlink()
+
+
+def test_zero_grad_set_to_none():
+    x = Tensor(np.array([1.0, 2.0], dtype=np.float64), (2,), requires_grad=True)
+    x.zero_grad()
+    assert x.grad is not None
+    x.zero_grad(set_to_none=True)
+    assert x.grad is None
+
+
+def test_adamw_step():
+    from NimbleML.optimizers import Adam, AdamW
+
+    param = Tensor(np.array([1.0], dtype=np.float64), (1,), requires_grad=True)
+    opt = AdamW([param], learning_rate=0.1, weight_decay=0.1)
+    param.grad = np.array([0.5], dtype=np.float64)
+    before = float(param.data[0])
+    opt.step()
+    after = float(param.data[0])
+    assert after < before
+
+    param2 = Tensor(np.array([1.0], dtype=np.float64), (1,), requires_grad=True)
+    opt2 = Adam([param2], learning_rate=0.1)
+    param2.grad = np.array([0.5], dtype=np.float64)
+    before2 = float(param2.data[0])
+    opt2.step()
+    after2 = float(param2.data[0])
+    assert after < after2
 
 
 def test_step_lr_scheduler():
@@ -157,9 +309,20 @@ def main():
     test_embedding_backward_accumulates()
     test_softmax_normalization_and_grad()
     test_attention_shape_with_causal_mask()
+    test_multi_head_attention_forward_backward()
+    test_rms_norm_forward_shape()
+    test_gelu_forward_backward()
+    test_feedforward_forward_backward()
     test_gpt_forward_shape()
+    test_gpt_tied_weights_no_lm_head()
+    test_gpt_pos_encoding_prefix()
+    test_cross_entropy_3d_forward_backward()
+    test_cross_entropy_ignore_index()
+    test_gpt_checkpoint_save_load()
     test_step_lr_scheduler()
     test_clip_grad_norm_enforces_global_cap()
+    test_zero_grad_set_to_none()
+    test_adamw_step()
     test_checkpoint_save_load_dense()
     from tests.test_tokenizer import main as test_tokenizer_main
     test_tokenizer_main()

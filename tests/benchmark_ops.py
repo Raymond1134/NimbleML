@@ -33,9 +33,10 @@ from NimbleML.layers.conv2d import Conv2D
 from NimbleML.layers.dense import Dense
 from NimbleML.losses import CrossEntropyLoss
 from NimbleML.models.gpt import GPT
-from NimbleML.neural_network.attention import Attention, make_causal_mask
+from NimbleML.neural_network.attention import Attention, causal_mask_tensor
 from NimbleML.neural_network.feed_forward import FeedForward
-from NimbleML.optimizers import Adam, SGD, StepLR
+from NimbleML.optimizers import Adam, AdamW, SGD, StepLR
+from NimbleML.utils.autograd_profile import profile_gpt_forward
 from NimbleML.utils.clip_grad import clip_grad_norm_
 from NimbleML.utils.np_backend import np, set_dtype, using_gpu
 from NimbleML.utils.saveload import save
@@ -44,10 +45,10 @@ from NimbleML.utils.tensor import Tensor
 BenchFn = Callable[[], None]
 
 # Toy GPT shape aligned with todo.txt target config.
-GPT_VOCAB = 8192
-GPT_D_MODEL = 320
-GPT_HEADS = 5
-GPT_LAYERS = 5
+GPT_VOCAB = 16384
+GPT_D_MODEL = 512
+GPT_HEADS = 8
+GPT_LAYERS = 18
 GPT_SEQ = 256
 GPT_BATCH = 16
 
@@ -120,6 +121,14 @@ def _make_gpt_inputs(batch: int = GPT_BATCH, seq_len: int = GPT_SEQ):
     return inputs, targets, float(batch * seq_len)
 
 
+def _zero_param_grads(params, *, set_to_none: bool = True) -> None:
+    for param in params:
+        if set_to_none:
+            param.grad = None
+        else:
+            param.zero_grad()
+
+
 def _gpt_forward_case() -> dict:
     model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
     inputs, _, tokens = _make_gpt_inputs()
@@ -136,8 +145,7 @@ def _gpt_forward_backward_case() -> dict:
     loss_fn = CrossEntropyLoss()
 
     def step():
-        for p in model.parameters():
-            p.grad = None
+        _zero_param_grads(model.parameters())
         logits = model.forward(inputs)
         loss = loss_fn(logits, inputs)
         loss.backward()
@@ -147,13 +155,12 @@ def _gpt_forward_backward_case() -> dict:
 
 def _gpt_train_step_case() -> dict:
     model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
-    opt = Adam(model.parameters(), learning_rate=3e-4)
+    opt = AdamW(model.parameters(), learning_rate=3e-4, weight_decay=0.1)
     loss_fn = CrossEntropyLoss()
     inputs, targets, tokens = _make_gpt_inputs()
 
     def step():
-        for p in model.parameters():
-            p.grad = None
+        opt.zero_grad(set_to_none=True)
         logits = model.forward(inputs)
         loss = loss_fn(logits, targets)
         loss.backward()
@@ -165,6 +172,19 @@ def _gpt_train_step_case() -> dict:
 
 def run_gpt_suite() -> list[dict]:
     return [_gpt_forward_case(), _gpt_forward_backward_case(), _gpt_train_step_case()]
+
+
+def print_gpt_graph_profile() -> None:
+    """Count autograd nodes for one GPT forward (reduction target baseline)."""
+    model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
+    inputs, _, _ = _make_gpt_inputs()
+    stats = profile_gpt_forward(model, inputs)
+    print(f"\nGPT forward autograd graph: {stats['nodes']} nodes")
+    print(f"logits shape: {stats['logits_shape']}")
+    print("op counts:")
+    for op, count in stats["ops"].items():
+        print(f"  {op:32} {count}")
+    print("Target: reduce node count as Tier 3 fusion continues (attention/FFN/CE done).")
 
 
 def _tensor_add_bwd_case() -> dict:
@@ -264,7 +284,7 @@ def _attention_case(seq_len: int) -> dict:
     attn = Attention(d_k)
 
     def step():
-        _ = attn.forward(q, k, v, mask=make_causal_mask(seq_len))
+        _ = attn.forward(q, k, v, mask=causal_mask_tensor(seq_len))
 
     return _bench(f"attention_fwd_seq{seq_len}", step, tokens=float(batch * seq_len))
 
@@ -459,7 +479,7 @@ def main() -> int:
     parser.add_argument("--full", action="store_true", help="Run full micro-benchmark suite.")
     parser.add_argument("--cpu", action="store_true", help="Force CPU backend.")
     parser.add_argument("--profile", choices=("gpt", "text"), default="gpt")
-    parser.add_argument("--compare-torch", action="store_true", help="Run PyTorch reference after NimbleML.")
+    parser.add_argument("--count-graph", action="store_true", help="Print GPT forward autograd node counts.")
     parser.add_argument("--json", type=str, default="", help="Write results JSON to path.")
     parser.add_argument("--both", action="store_true", help="Run CPU and GPU subprocesses.")
     args = parser.parse_args()
@@ -483,8 +503,22 @@ def main() -> int:
         import NimbleML.utils.np_backend as nb
         importlib.reload(nb)
 
+    graph_only = (
+        args.count_graph
+        and not args.full
+        and not args.both
+        and not args.json
+        and not args.compare_torch
+    )
+    if graph_only:
+        set_dtype("float32")
+        print_gpt_graph_profile()
+        return 0
+
     results = run_once(full=args.full, profile=args.profile)
     print_report(results, args.profile)
+    if args.count_graph:
+        print_gpt_graph_profile()
     if args.compare_torch:
         compare_torch_gpt()
     if args.json:

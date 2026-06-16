@@ -1,0 +1,148 @@
+================================================================================
+toyGPT — terminal commands (run from repo root: D:\Projects\NimbleML)
+================================================================================
+
+PowerShell uses `;` instead of `&&` to chain commands.
+
+
+--------------------------------------------------------------------------------
+Setup
+--------------------------------------------------------------------------------
+
+cd D:\Projects\NimbleML
+
+# Install package + dev deps (optional)
+pip install -e .
+pip install -r requirements-dev.txt
+
+# GPU backend (CuPy — match your CUDA version)
+pip install cupy-cuda11x
+
+
+--------------------------------------------------------------------------------
+Tests
+--------------------------------------------------------------------------------
+
+python test.py
+python tests\test_tokenizer.py
+python -m pytest tests\ -q
+
+
+--------------------------------------------------------------------------------
+Benchmarks (GPU default)
+--------------------------------------------------------------------------------
+
+python benchmark.py
+python benchmark.py --full
+python benchmark.py --compare-torch
+python benchmark.py --json toyGPT\benchmark_baseline.json
+python benchmark.py --cpu
+python benchmark.py --both
+
+
+--------------------------------------------------------------------------------
+Train toy GPT
+--------------------------------------------------------------------------------
+
+# Default config (WikiText-2, BPE vocab 8192, GPU)
+python toyGPT\train_gpt.py
+
+# Explicit config path
+python toyGPT\train_gpt.py --config toyGPT\gpt_toy_config.toml
+
+# Resume from latest checkpoint
+python toyGPT\train_gpt.py --resume latest
+
+# Resume from best val-loss checkpoint
+python toyGPT\train_gpt.py --resume best
+
+# Resume from a specific step folder
+python toyGPT\train_gpt.py --resume step_500
+
+
+--------------------------------------------------------------------------------
+Tokenizer
+--------------------------------------------------------------------------------
+
+# First train run builds BPE and writes:
+#   toyGPT\data\tokenizer.json   — saved merges (reload on next run)
+
+# Delete tokenizer to force retrain:
+Remove-Item toyGPT\data\tokenizer.json -ErrorAction SilentlyContinue
+
+
+--------------------------------------------------------------------------------
+Checkpoints
+--------------------------------------------------------------------------------
+
+# Checkpoint layout:
+#   toyGPT\checkpoints\latest\     — most recent save
+#   toyGPT\checkpoints\best\       — lowest val loss
+#   toyGPT\checkpoints\step_N\     — periodic snapshots
+
+# List checkpoints:
+Get-ChildItem toyGPT\checkpoints -Recurse -Filter training.json
+
+# Wipe checkpoints and start fresh:
+Remove-Item toyGPT\checkpoints -Recurse -Force -ErrorAction SilentlyContinue
+
+
+--------------------------------------------------------------------------------
+Config tweaks (edit toyGPT\gpt_toy_config.toml)
+--------------------------------------------------------------------------------
+
+# Faster BPE iteration — cap training corpus for tokenizer:
+#   tokenizer_max_chars = 1000000
+
+# More logging + sample text each eval:
+#   [log]
+#   verbose = 1
+
+# Smaller model for smoke tests:
+#   d_model = 64
+#   n_layer = 2
+#   n_head = 2
+#   seq_len = 32
+#   batch_size = 4
+#   max_steps = 100
+
+
+--------------------------------------------------------------------------------
+Data cache
+--------------------------------------------------------------------------------
+
+# WikiText downloads to:
+#   toyGPT\data\cache\wikitext-2-raw\
+
+# Clear downloaded data:
+Remove-Item toyGPT\data\cache -Recurse -Force -ErrorAction SilentlyContinue
+
+
+--------------------------------------------------------------------------------
+Environment overrides
+--------------------------------------------------------------------------------
+
+# Force CPU:
+$env:NIMBLEML_DEVICE = "cpu"
+python toyGPT\train_gpt.py
+
+# Force GPU:
+$env:NIMBLEML_DEVICE = "gpu"
+python toyGPT\train_gpt.py
+
+# Float precision:
+$env:NIMBLEML_DTYPE = "float32"
+$env:NIMBLEML_DTYPE = "float64"
+
+
+--------------------------------------------------------------------------------
+Git (optional)
+--------------------------------------------------------------------------------
+
+git status
+git diff
+git add toyGPT\
+git commit -m "your message"
+
+# Note: toyGPT\checkpoints\, toyGPT\data\cache\,
+# and toyGPT\data\tokenizer.json are gitignored (generated artifacts).
