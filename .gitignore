@@ -218,13 +218,3 @@ __marimo__/
 .streamlit/secrets.toml
 
 todo.txt
-
-# Personal training sandboxes / large downloads (not library fixtures)
-checkpoints/
-NimbleML/data/corpus.txt
-NimbleML/data/corpus_ids*.npy
-NimbleML/data/wikitext-103-raw-v1.zip
-NimbleML/data/wikitext-103-raw/
-NimbleML/data/tokenizer.json
-NimbleML/data/tokenizer_512.json
-NimbleML/data/tokenizer_4096.json

@@ -12,7 +12,7 @@ from NimbleML.layers.dense import Dense
 from NimbleML.layers.flatten import Flatten
 from NimbleML.layers import Embedding, LayerNorm, MaxPool2D
 from NimbleML.losses import CrossEntropyLoss
-from NimbleML.optimizers import Adam, LRScheduler
+from NimbleML.optimizers import Adam, LRScheduler, StepLR, SGD
 from NimbleML.activations import Softmax
 from NimbleML.neural_network.attention import Attention, MultiHeadAttention, make_causal_mask
 from NimbleML.neural_network.feed_forward import FeedForward
@@ -417,6 +417,39 @@ def test_lr_scheduler_base():
     assert abs(optimizer.learning_rate - 0.0125) < 1e-9
 
 
+def test_step_lr():
+    optimizer = SGD([Tensor([1.0], (1,), requires_grad=True)], learning_rate=1.0)
+    scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
+
+    scheduler.step()  # epoch 0
+    assert abs(optimizer.learning_rate - 1.0) < 1e-9
+    scheduler.step()  # epoch 1
+    assert abs(optimizer.learning_rate - 1.0) < 1e-9
+    scheduler.step()  # epoch 2
+    assert abs(optimizer.learning_rate - 0.1) < 1e-9
+
+
+def test_lr_scheduler_param_groups():
+    w1 = Tensor([1.0], (1,), requires_grad=True)
+    w2 = Tensor([2.0], (1,), requires_grad=True)
+    optimizer = Adam(
+        [
+            {"params": [w1], "lr": 0.1},
+            {"params": [w2], "lr": 0.2},
+        ]
+    )
+
+    class HalfLR(LRScheduler):
+        def get_lr(self):
+            return [base * 0.5 for base in self.base_lrs]
+
+    scheduler = HalfLR(optimizer)
+    scheduler.step()
+    assert optimizer.get_lr() == [0.05, 0.1]
+    assert optimizer.param_groups[0]["lr"] == 0.05
+    assert optimizer.param_groups[1]["lr"] == 0.1
+
+
 def test_named_parameters_dense():
     layer = Dense(3, 2)
     names = [name for name, _ in named_parameters(layer)]
@@ -546,6 +579,8 @@ def main():
     test_transformer_block_shape()
     test_gpt_forward_shape()
     test_lr_scheduler_base()
+    test_step_lr()
+    test_lr_scheduler_param_groups()
     test_named_parameters_dense()
     test_checkpoint_save_load_dense()
     test_checkpoint_save_load_gpt()

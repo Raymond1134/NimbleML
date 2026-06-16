@@ -6,15 +6,15 @@ from ..optimizer import Optimizer
 class LRScheduler:
     """Base class for learning-rate schedulers.
 
-    Subclasses implement ``get_lr()``; ``step()`` applies the returned rate to
-    ``optimizer.learning_rate``.
+    Subclasses implement ``get_lr()`` returning one rate per optimizer param group;
+    ``step()`` applies those rates via ``optimizer.set_lr()``.
     """
 
     def __init__(self, optimizer, last_epoch=-1):
         if not isinstance(optimizer, Optimizer):
             raise TypeError(f"{type(optimizer).__name__} is not an Optimizer")
         self.optimizer = optimizer
-        self.base_lrs = [optimizer.learning_rate]
+        self.base_lrs = list(optimizer.get_lr())
         self.last_epoch = last_epoch
 
     def get_lr(self):
@@ -31,4 +31,4 @@ class LRScheduler:
             raise ValueError(
                 f"get_lr() returned {len(lrs)} values, expected {len(self.base_lrs)}"
             )
-        self.optimizer.learning_rate = lrs[0]
+        self.optimizer.set_lr(lrs)

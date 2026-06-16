@@ -2,6 +2,7 @@
 # Step learning rate scheduler
 from .base import LRScheduler
 
+
 class StepLR(LRScheduler):
     def __init__(self, optimizer, step_size, gamma=0.1):
         super().__init__(optimizer)
@@ -9,4 +10,5 @@ class StepLR(LRScheduler):
         self.gamma = gamma
 
     def get_lr(self):
-        return [self.base_lrs[0] * self.gamma ** (self.last_epoch // self.step_size)]
+        factor = self.gamma ** (self.last_epoch // self.step_size)
+        return [base * factor for base in self.base_lrs]
