@@ -162,6 +162,7 @@ def main():
     test_clip_grad_norm_enforces_global_cap()
     test_checkpoint_save_load_dense()
     from tests.test_tokenizer import main as test_tokenizer_main
+
     test_tokenizer_main()
     print("Mandatory tests passed.")
 

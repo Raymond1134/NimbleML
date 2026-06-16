@@ -1,4 +1,4 @@
-"""Package exports and public API surface."""
+"""Neural network models."""
 
 from .gpt import GPT
 
