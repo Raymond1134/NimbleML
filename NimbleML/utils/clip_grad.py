@@ -4,45 +4,46 @@ import math
 from NimbleML.utils.np_backend import np, dtype
 
 
+def _scalar(value) -> float:
+    if hasattr(value, "get"):
+        value = value.get()
+    if hasattr(value, "item"):
+        return float(value.item())
+    return float(value)
+
+
 def clip_grad_norm_(params, max_norm: float) -> float:
     """Clip the total L2 norm of gradients in-place to at most ``max_norm``.
 
-    Parameters
-    ----------
-    params:
-        Iterable of parameters with a ``grad`` attribute (possibly ``None``).
-    max_norm:
-        Maximum allowed global L2 norm for all gradients.
-
-    Returns
-    -------
-    float
-        The original (unclipped) global L2 norm of all gradients.
+    Uses one reduction over all gradients (single GPU sync on CuPy) instead of
+    per-parameter ``float(np.sum(...))`` calls.
     """
     if max_norm <= 0:
         raise ValueError("max_norm must be positive.")
 
-    total_sq_norm = 0.0
+    active = []
     for param in params:
         grad = getattr(param, "grad", None)
         if grad is None:
             continue
-        g = grad.get() if hasattr(grad, "get") else grad
-        arr = np.asarray(g, dtype=dtype)
-        total_sq_norm += float(np.sum(arr * arr))
+        active.append((param, np.asarray(grad, dtype=dtype)))
 
-    total_norm = math.sqrt(total_sq_norm)
+    if not active:
+        return 0.0
+
+    total_sq = None
+    for _, grad in active:
+        flat = grad.ravel()
+        sq = np.dot(flat, flat)
+        total_sq = sq if total_sq is None else total_sq + sq
+
+    total_norm = math.sqrt(_scalar(total_sq))
     if total_norm == 0.0 or not math.isfinite(total_norm) or total_norm <= max_norm:
         return total_norm
 
     scale = max_norm / total_norm
-    for param in params:
-        if getattr(param, "grad", None) is None:
-            continue
-        grad = param.grad
-        if hasattr(grad, "get"):
-            grad = grad.get()
-        grad_arr = np.asarray(grad, dtype=dtype) * scale
-        param.grad = grad_arr
+    for param, grad in active:
+        np.multiply(grad, scale, out=grad)
+        param.grad = grad
 
     return total_norm

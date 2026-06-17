@@ -1,5 +1,9 @@
 """Mandatory correctness tests for NimbleML core functionality."""
 
+import os
+
+os.environ["NIMBLEML_DEVICE"] = "cpu"
+
 from pathlib import Path
 
 from NimbleML.activations import Softmax
@@ -14,8 +18,8 @@ from NimbleML.utils.np_backend import np, set_dtype
 from NimbleML.utils.saveload import load, named_parameters, save
 from NimbleML.utils.tensor import Tensor
 
-# Keep numeric checks stable for strict assertions.
-set_dtype("float64")
+# Default training path: GPU + float32 (see toyGPT/gpt_toy_config.toml).
+set_dtype("float32")
 
 
 def _global_grad_norm(params):
@@ -161,7 +165,7 @@ def test_gpt_forward_shape():
     vocab_size, d_model, num_heads, num_layers, max_seq_len = 50, 32, 4, 2, 8
     batch, seq_len = 2, 8
     model = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
-    input_ids = Tensor(np.tile(np.arange(seq_len, dtype=np.float64), batch), (batch, seq_len))
+    input_ids = Tensor.from_int64(np.tile(np.arange(seq_len, dtype=np.int64), batch), (batch, seq_len))
     logits = model.forward(input_ids)
     assert logits.shape == (batch, seq_len, vocab_size)
 
@@ -193,7 +197,7 @@ def test_cross_entropy_3d_forward_backward():
         (2, 3, 5),
         requires_grad=True,
     )
-    labels = Tensor(np.array([1, 2, 0, 4, 3, 1], dtype=np.int64), (2, 3))
+    labels = Tensor.from_int64(np.array([1, 2, 0, 4, 3, 1], dtype=np.int64), (2, 3))
     loss = loss_fn(logits, labels)
     assert loss.shape == ()
     loss.backward()
@@ -205,7 +209,7 @@ def test_cross_entropy_ignore_index():
 
     loss_fn = CrossEntropyLoss()
     logits = Tensor(np.linspace(-1, 1, 12, dtype=np.float64), (2, 2, 3), requires_grad=True)
-    labels = Tensor(np.array([0, -1, 2, 1], dtype=np.int64), (2, 2))
+    labels = Tensor.from_int64(np.array([0, -1, 2, 1], dtype=np.int64), (2, 2))
     loss = loss_fn(logits, labels, ignore_index=-1)
     loss.backward()
     grad = np.asarray(logits.grad).reshape(2, 2, 3)
@@ -219,7 +223,7 @@ def test_gpt_checkpoint_save_load(tmp_path=None):
         vocab_size, d_model, num_heads, num_layers, max_seq_len = 40, 24, 4, 2, 8
         batch, seq_len = 2, 8
         model = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
-        input_ids = Tensor(np.tile(np.arange(seq_len, dtype=np.float64), batch), (batch, seq_len))
+        input_ids = Tensor.from_int64(np.tile(np.arange(seq_len, dtype=np.int64), batch), (batch, seq_len))
         expected = np.asarray(model.forward(input_ids).data).reshape(batch, seq_len, vocab_size)
         save(model, ckpt_path)
         fresh = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
@@ -258,6 +262,26 @@ def test_adamw_step():
     opt2.step()
     after2 = float(param2.data[0])
     assert after < after2
+
+
+def test_adamw_param_groups_exclude_norm_and_bias():
+    from toyGPT.train_utils import adamw_param_groups
+
+    model = GPT(40, 24, 4, 2, 8)
+    groups = adamw_param_groups(model, lr=3e-4, weight_decay=0.1)
+    decay = groups[0]["params"]
+    nodecay = groups[1]["params"]
+    assert groups[0]["weight_decay"] == 0.1
+    assert groups[1]["weight_decay"] == 0.0
+    assert len(decay) > 0
+    assert len(nodecay) > 0
+    decay_names = {name for name, p in named_parameters(model) if p in decay}
+    assert all(name.endswith(".weights") for name in decay_names)
+    nodecay_names = {name for name, p in named_parameters(model) if p in nodecay}
+    assert all(not name.endswith(".weights") for name in nodecay_names)
+
+
+def test_step_lr_scheduler():
     optimizer = SGD([Tensor([1.0], (1,), requires_grad=True)], learning_rate=1.0)
     scheduler = StepLR(optimizer, step_size=2, gamma=0.1)
     scheduler.step()
@@ -320,6 +344,7 @@ def main():
     test_clip_grad_norm_enforces_global_cap()
     test_zero_grad_set_to_none()
     test_adamw_step()
+    test_adamw_param_groups_exclude_norm_and_bias()
     test_checkpoint_save_load_dense()
     from tests.test_tokenizer import main as test_tokenizer_main
 

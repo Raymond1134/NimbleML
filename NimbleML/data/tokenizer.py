@@ -221,28 +221,70 @@ class BPETokenizer:
         self._train_corpus_ids = None
         return ids
 
-    def _encode_ids(self, ids: np.ndarray, *, verbose: bool = False) -> np.ndarray:
+    def _encode_ids(
+        self,
+        ids: np.ndarray,
+        *,
+        verbose: bool = False,
+        log_every: int = 1,
+        label: str = "",
+    ) -> np.ndarray:
         if not self.merges:
             return ids
 
         steps = 0
         encode_start = time.perf_counter()
+        tag = f"{label} " if label else ""
+        target_steps = len(self.merges)
+
+        if verbose:
+            print(
+                f"[bpe] encode {tag}start | corpus_tokens={ids.size:,} "
+                f"merges={target_steps} log_every={log_every}"
+            )
+
         while ids.size >= 2:
+            t0 = time.perf_counter()
             best = self._best_merge(ids)
             if best is None:
                 break
             rank, a, b = best
             ids = _merge_all_pair(ids, (a, b), BYTE_VOCAB_SIZE + rank)
             steps += 1
+            step_ms = (time.perf_counter() - t0) * 1000.0
+
+            should_log = verbose and (
+                log_every <= 1
+                or steps % log_every == 0
+                or steps == 1
+                or steps == target_steps
+            )
+            if should_log:
+                print(
+                    f"[bpe] encode {tag}step {steps:5d}/{target_steps} | "
+                    f"tokens={ids.size:,} | step_ms={step_ms:.1f}"
+                )
 
         if verbose:
             elapsed = time.perf_counter() - encode_start
-            print(f"[bpe] encode | tokens_out={ids.size:,} merge_steps={steps} elapsed={elapsed:.3f}s")
+            print(
+                f"[bpe] encode {tag}done | tokens_out={ids.size:,} "
+                f"merge_steps={steps} elapsed={elapsed:.2f}s"
+            )
         return ids
 
-    def encode(self, text: str, verbose: bool = False, **kwargs) -> list[int]:
+    def encode(
+        self,
+        text: str,
+        verbose: bool = False,
+        log_every: int = 1,
+        label: str = "",
+        **kwargs,
+    ) -> list[int]:
         ids = _text_to_ids(text)
-        return self._encode_ids(ids, verbose=verbose).tolist()
+        return self._encode_ids(
+            ids, verbose=verbose, log_every=log_every, label=label
+        ).tolist()
 
     def encode_batch(self, texts: list[str], verbose: bool = False) -> list[list[int]]:
         if verbose:

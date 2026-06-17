@@ -6,7 +6,7 @@ from NimbleML.layers import Dense
 from NimbleML.neural_network import Module
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor
+from NimbleML.utils.tensor import Tensor, _save_for_backward
 
 
 @lru_cache(maxsize=None)
@@ -135,6 +135,10 @@ def scaled_dot_product_attention(Q, K, V, scale, mask=None):
     probs = _softmax_last_axis(scores)
     out_arr = np.matmul(probs, v_arr)
 
+    save_q = _save_for_backward(q_arr)
+    save_k = _save_for_backward(k_arr)
+    save_v = _save_for_backward(v_arr)
+
     requires_grad = Q.requires_grad or K.requires_grad or V.requires_grad
     out = Tensor(
         out_arr.ravel(),
@@ -150,17 +154,21 @@ def scaled_dot_product_attention(Q, K, V, scale, mask=None):
 
         grad_out = Tensor._asarray(out.grad).reshape(out_arr.shape)
         scale_f = float(scale)
-        grad_probs = np.matmul(grad_out, np.swapaxes(v_arr, -2, -1))
+        scores = np.matmul(save_q, np.swapaxes(save_k, -2, -1)) / scale_f
+        if mask_arr is not None:
+            scores = scores + mask_arr
+        probs = _softmax_last_axis(scores)
+        grad_probs = np.matmul(grad_out, np.swapaxes(save_v, -2, -1))
         row_count = prod(q_shape[:-1])
         last_dim = q_shape[-2]
         grad_scores = _softmax_last_axis_backward(grad_probs, probs, row_count, last_dim)
         grad_scores = grad_scores / scale_f
 
         if Q.requires_grad:
-            grad_q = np.matmul(grad_scores, k_arr)
+            grad_q = np.matmul(grad_scores, save_k)
             Q._accumulate_grad(grad_q.ravel())
         if K.requires_grad:
-            grad_k = np.matmul(np.swapaxes(grad_scores, -2, -1), q_arr)
+            grad_k = np.matmul(np.swapaxes(grad_scores, -2, -1), save_q)
             K._accumulate_grad(grad_k.ravel())
         if V.requires_grad:
             grad_v = np.matmul(np.swapaxes(probs, -2, -1), grad_out)

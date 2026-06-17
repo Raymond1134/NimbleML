@@ -21,9 +21,10 @@ class Optimizer:
                 if "params" not in group:
                     raise ValueError("each param group must include 'params'")
                 lr_value = group.get("lr", group.get("learning_rate", default_lr))
-                self.param_groups.append(
-                    {"params": list(group["params"]), "lr": lr_value}
-                )
+                entry = {"params": list(group["params"]), "lr": lr_value}
+                if "weight_decay" in group:
+                    entry["weight_decay"] = float(group["weight_decay"])
+                self.param_groups.append(entry)
         else:
             self.param_groups = [{"params": list(params), "lr": default_lr}]
 

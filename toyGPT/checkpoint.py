@@ -9,11 +9,14 @@ from typing import Any
 
 import numpy as host_np
 
-from NimbleML.data.tokenizer import BPETokenizer
-from NimbleML.optimizers import Adam, AdamW
-from NimbleML.utils.saveload import load, save
+from typing import Union
 
-OptimizerType = Adam | AdamW
+from NimbleML.optimizers import Adam, AdamW
+from NimbleML.utils import np_backend
+from NimbleML.utils.saveload import load, save
+from toyGPT.fast_tokenizer import FastBPETokenizer
+
+OptimizerType = Union[Adam, AdamW]
 
 
 def _to_host_array(arr) -> host_np.ndarray:
@@ -48,9 +51,12 @@ def load_optimizer(optimizer: OptimizerType, path: Path) -> None:
         optimizer.set_lr(lrs)
         if "weight_decay" in data:
             optimizer.weight_decay = float(data["weight_decay"])
+        # Upload moment buffers onto the active backend (CuPy on GPU). Assigning
+        # raw host arrays here would make optimizer.step() fail mixing NumPy and
+        # CuPy operands, which previously broke GPU resume.
         for i in range(len(optimizer.m)):
-            optimizer.m[i] = host_np.asarray(data[f"m_{i}"], dtype=optimizer.m[i].dtype)
-            optimizer.v[i] = host_np.asarray(data[f"v_{i}"], dtype=optimizer.v[i].dtype)
+            optimizer.m[i] = np_backend.np.asarray(data[f"m_{i}"], dtype=np_backend.dtype)
+            optimizer.v[i] = np_backend.np.asarray(data[f"v_{i}"], dtype=np_backend.dtype)
 
 
 def write_training_state(
@@ -83,7 +89,8 @@ def save_checkpoint(
     step: int,
     best_val_loss: float | None,
     config: dict[str, Any],
-    tokenizer: BPETokenizer,
+    tokenizer: FastBPETokenizer,
+    rng=None,
 ) -> None:
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     save(model, ckpt_dir / "weights.npz")
@@ -97,12 +104,16 @@ def save_checkpoint(
         vocab_size=tokenizer.vocab_size,
     )
     (ckpt_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    if rng is not None:
+        from toyGPT.train_utils import save_rng_state
+
+        save_rng_state(ckpt_dir / "rng.json", rng)
 
 
-def load_checkpoint(ckpt_dir: Path, *, model, optimizer: OptimizerType) -> tuple[dict[str, Any], BPETokenizer]:
+def load_checkpoint(ckpt_dir: Path, *, model, optimizer: OptimizerType) -> tuple[dict[str, Any], FastBPETokenizer]:
     load(model, ckpt_dir / "weights.npz")
     load_optimizer(optimizer, ckpt_dir / "optimizer.npz")
-    tokenizer = BPETokenizer.load(ckpt_dir / "tokenizer.json")
+    tokenizer = FastBPETokenizer.load(ckpt_dir / "tokenizer.json")
     return read_training_state(ckpt_dir / "training.json"), tokenizer
 
 

@@ -75,11 +75,15 @@ class ToyGPTConfig:
     device: str = "gpu"
     checkpoint_every: int = 500
     checkpoint_dir: Path = TOYGPT_ROOT / "checkpoints"
-    dataset: str = "wikitext-2"
+    dataset: str = "fineweb-edu"
+    hf_repo: str = "HuggingFaceFW/fineweb-edu"
+    hf_subset: str = "sample-10BT"
+    train_tokens: int = 1_300_000_000
+    val_tokens: int = 1_000_000
+    tokenizer_sample_mb: int = 400
     data_dir: Path = TOYGPT_ROOT / "data"
     cache_dir: Path = TOYGPT_ROOT / "data" / "cache"
     tokenizer_path: Path = TOYGPT_ROOT / "data" / "tokenizer.json"
-    tokenizer_max_chars: int = 0
     eval_every: int = 200
     eval_batches: int = 20
     sample_chars: int = 200
@@ -88,6 +92,8 @@ class ToyGPTConfig:
     log_every: int = 1
     bpe_log_every: int = 1
     rolling_avg: int = 50
+    early_stop_patience: int = 0
+    log_grad_norm: int = 0
     seed: int = 42
     config_path: Path = TOYGPT_ROOT / "gpt_toy_config.toml"
 
@@ -118,11 +124,15 @@ class ToyGPTConfig:
             "device": str(train.get("device", "gpu")),
             "checkpoint_every": int(train.get("checkpoint_every", 500)),
             "checkpoint_dir": _resolve_path(train.get("checkpoint_dir", "checkpoints"), base=TOYGPT_ROOT),
-            "dataset": str(data.get("dataset", "wikitext-2")),
+            "dataset": str(data.get("dataset", "fineweb-edu")),
+            "hf_repo": str(data.get("hf_repo", "HuggingFaceFW/fineweb-edu")),
+            "hf_subset": str(data.get("hf_subset", "sample-10BT")),
+            "train_tokens": int(data.get("train_tokens", 1_300_000_000)),
+            "val_tokens": int(data.get("val_tokens", 1_000_000)),
+            "tokenizer_sample_mb": int(data.get("tokenizer_sample_mb", 400)),
             "data_dir": _resolve_path(data.get("data_dir", "data"), base=TOYGPT_ROOT),
             "cache_dir": _resolve_path(data.get("cache_dir", "data/cache"), base=TOYGPT_ROOT),
             "tokenizer_path": _resolve_path(data.get("tokenizer_path", "data/tokenizer.json"), base=TOYGPT_ROOT),
-            "tokenizer_max_chars": int(data.get("tokenizer_max_chars", 0)),
             "eval_every": int(eval_cfg.get("eval_every", 200)),
             "eval_batches": int(eval_cfg.get("eval_batches", 20)),
             "sample_chars": int(eval_cfg.get("sample_chars", 200)),
@@ -131,6 +141,8 @@ class ToyGPTConfig:
             "log_every": int(log_cfg.get("log_every", 1)),
             "bpe_log_every": int(log_cfg.get("bpe_log_every", 1)),
             "rolling_avg": int(log_cfg.get("rolling_avg", 50)),
+            "early_stop_patience": int(train.get("early_stop_patience", 0)),
+            "log_grad_norm": int(log_cfg.get("log_grad_norm", 0)),
             "seed": int(seed_cfg.get("seed", 42)),
             "config_path": path.resolve(),
         }

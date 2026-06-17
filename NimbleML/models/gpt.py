@@ -49,9 +49,8 @@ class GPT(Module):
         if seq_len > self.max_seq_len:
             raise ValueError(f"Sequence length {seq_len} exceeds maximum sequence length {self.max_seq_len}")
 
-        token_ids = np.asarray(input_ids.data, dtype=np.int64).reshape(batch, seq_len)
         pos = self._absolute_pos_encoding(seq_len)
-        x = self.token_emb(token_ids) + pos
+        x = self.token_emb(input_ids) + pos
         x = self.blocks(x)
         x = self.ln(x)
         return x.matmul(self.token_emb.weights.T)

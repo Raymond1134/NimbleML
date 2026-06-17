@@ -1,10 +1,12 @@
 """NimbleML performance benchmarks — GPU-first, GPT training focused.
 
 Run:
-  python benchmark.py              # GPT suite on GPU (default)
-  python benchmark.py --full       # all micro-benchmarks
+  python benchmark.py                    # fast quick GPT smoke (~seconds)
+  python benchmark.py --train-shape  # match toyGPT config (slow)
+  python benchmark.py --full       # all micro-benchmarks (quick shapes)
+  python benchmark.py --full --train-shape
   python benchmark.py --compare-torch
-  python tests/benchmark_ops.py --help
+  python benchmark.py --count-graph
 """
 
 from __future__ import annotations
@@ -20,8 +22,9 @@ import statistics
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -44,13 +47,46 @@ from NimbleML.utils.tensor import Tensor
 
 BenchFn = Callable[[], None]
 
-# Toy GPT shape aligned with todo.txt target config.
-GPT_VOCAB = 16384
-GPT_D_MODEL = 512
-GPT_HEADS = 8
-GPT_LAYERS = 18
-GPT_SEQ = 256
-GPT_BATCH = 16
+
+@dataclass(frozen=True)
+class GptBenchConfig:
+    vocab: int
+    d_model: int
+    heads: int
+    layers: int
+    seq: int
+    batch: int
+    warmup: int
+    runs: int
+
+    @property
+    def tokens_per_step(self) -> float:
+        return float(self.batch * self.seq)
+
+
+# Quick default — fast smoke benchmark (seconds, not minutes).
+QUICK_GPT = GptBenchConfig(
+    vocab=4096,
+    d_model=512,
+    heads=8,
+    layers=8,
+    seq=256,
+    batch=4,
+    warmup=3,
+    runs=5,
+)
+
+# Matches toyGPT/gpt_toy_config.toml — use with --train-shape only.
+TRAIN_GPT = GptBenchConfig(
+    vocab=16384,
+    d_model=512,
+    heads=8,
+    layers=18,
+    seq=256,
+    batch=16,
+    warmup=2,
+    runs=5,
+)
 
 WEIGHTS = {
     "gpt": {
@@ -85,7 +121,14 @@ def _sync_if_gpu() -> None:
         np.cuda.Stream.null.synchronize()
 
 
-def _bench(name: str, fn: BenchFn, *, warmup: int = 6, runs: int = 20, tokens: float | None = None) -> dict:
+def _bench(
+    name: str,
+    fn: BenchFn,
+    *,
+    warmup: int = 2,
+    runs: int = 5,
+    tokens: float | None = None,
+) -> dict:
     for _ in range(warmup):
         fn()
     _sync_if_gpu()
@@ -108,17 +151,21 @@ def _bench(name: str, fn: BenchFn, *, warmup: int = 6, runs: int = 20, tokens: f
     return out
 
 
-def _make_gpt_inputs(batch: int = GPT_BATCH, seq_len: int = GPT_SEQ):
-    inputs = Tensor(
-        np.random.randint(0, GPT_VOCAB, size=(batch, seq_len), dtype=np.int64).ravel(),
+def _make_gpt_inputs(cfg: GptBenchConfig):
+    batch, seq_len, vocab = cfg.batch, cfg.seq, cfg.vocab
+    inputs = Tensor.from_int64(
+        np.random.randint(0, vocab, size=(batch, seq_len), dtype=np.int64).ravel(),
         (batch, seq_len),
-        requires_grad=False,
     )
-    targets = Tensor(
-        np.random.randint(0, GPT_VOCAB, size=(batch, seq_len), dtype=np.int64).ravel(),
+    targets = Tensor.from_int64(
+        np.random.randint(0, vocab, size=(batch, seq_len), dtype=np.int64).ravel(),
         (batch, seq_len),
     )
     return inputs, targets, float(batch * seq_len)
+
+
+def _make_gpt_model(cfg: GptBenchConfig) -> GPT:
+    return GPT(cfg.vocab, cfg.d_model, cfg.heads, cfg.layers, cfg.seq)
 
 
 def _zero_param_grads(params, *, set_to_none: bool = True) -> None:
@@ -129,55 +176,43 @@ def _zero_param_grads(params, *, set_to_none: bool = True) -> None:
             param.zero_grad()
 
 
-def _gpt_forward_case() -> dict:
-    model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
-    inputs, _, tokens = _make_gpt_inputs()
+def run_gpt_suite(cfg: GptBenchConfig) -> list[dict]:
+    """One shared model; forward, backward, and train-step timings."""
+    model = _make_gpt_model(cfg)
+    inputs, targets, tokens = _make_gpt_inputs(cfg)
+    loss_fn = CrossEntropyLoss()
+    opt = AdamW(model.parameters(), learning_rate=3e-4, weight_decay=0.1)
+    warmup, runs = cfg.warmup, cfg.runs
 
-    def step():
+    def forward_step():
         _ = model.forward(inputs)
 
-    return _bench("gpt_fwd", step, warmup=4, runs=12, tokens=tokens)
-
-
-def _gpt_forward_backward_case() -> dict:
-    model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
-    inputs, _, tokens = _make_gpt_inputs()
-    loss_fn = CrossEntropyLoss()
-
-    def step():
+    def forward_backward_step():
         _zero_param_grads(model.parameters())
         logits = model.forward(inputs)
-        loss = loss_fn(logits, inputs)
+        loss = loss_fn(logits, targets)
         loss.backward()
 
-    return _bench("gpt_fwd_bwd", step, warmup=4, runs=10, tokens=tokens)
-
-
-def _gpt_train_step_case() -> dict:
-    model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
-    opt = AdamW(model.parameters(), learning_rate=3e-4, weight_decay=0.1)
-    loss_fn = CrossEntropyLoss()
-    inputs, targets, tokens = _make_gpt_inputs()
-
-    def step():
+    def train_step():
         opt.zero_grad(set_to_none=True)
         logits = model.forward(inputs)
         loss = loss_fn(logits, targets)
         loss.backward()
         clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
+        model.clear_pos_encoding_cache()
 
-    return _bench("gpt_train_step", step, warmup=4, runs=10, tokens=tokens)
+    return [
+        _bench("gpt_fwd", forward_step, warmup=warmup, runs=runs, tokens=tokens),
+        _bench("gpt_fwd_bwd", forward_backward_step, warmup=warmup, runs=runs, tokens=tokens),
+        _bench("gpt_train_step", train_step, warmup=warmup, runs=runs, tokens=tokens),
+    ]
 
 
-def run_gpt_suite() -> list[dict]:
-    return [_gpt_forward_case(), _gpt_forward_backward_case(), _gpt_train_step_case()]
-
-
-def print_gpt_graph_profile() -> None:
+def print_gpt_graph_profile(cfg: GptBenchConfig) -> None:
     """Count autograd nodes for one GPT forward (reduction target baseline)."""
-    model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
-    inputs, _, _ = _make_gpt_inputs()
+    model = _make_gpt_model(cfg)
+    inputs, _, _ = _make_gpt_inputs(cfg)
     stats = profile_gpt_forward(model, inputs)
     print(f"\nGPT forward autograd graph: {stats['nodes']} nodes")
     print(f"logits shape: {stats['logits_shape']}")
@@ -236,21 +271,21 @@ def _maxpool2d_case() -> dict:
     return _bench("maxpool2d_fwd_bwd", step)
 
 
-def _embedding_case() -> dict:
-    layer = Embedding(vocab_size=GPT_VOCAB, embed_dim=GPT_D_MODEL)
-    ids = np.random.randint(0, GPT_VOCAB, size=(GPT_BATCH, GPT_SEQ)).tolist()
+def _embedding_case(cfg: GptBenchConfig) -> dict:
+    layer = Embedding(vocab_size=cfg.vocab, embed_dim=cfg.d_model)
+    ids = np.random.randint(0, cfg.vocab, size=(cfg.batch, cfg.seq)).tolist()
 
     def step():
         _ = layer.forward(ids)
 
-    return _bench("embedding_lookup_fwd", step, tokens=float(GPT_BATCH * GPT_SEQ))
+    return _bench("embedding_lookup_fwd", step, tokens=cfg.tokens_per_step)
 
 
-def _layernorm_case() -> dict:
-    ln = LayerNorm(GPT_D_MODEL)
+def _layernorm_case(cfg: GptBenchConfig) -> dict:
+    ln = LayerNorm(cfg.d_model)
     x = Tensor(
-        np.random.standard_normal((GPT_BATCH, GPT_SEQ, GPT_D_MODEL)).astype(np.float32).ravel(),
-        (GPT_BATCH, GPT_SEQ, GPT_D_MODEL),
+        np.random.standard_normal((cfg.batch, cfg.seq, cfg.d_model)).astype(np.float32).ravel(),
+        (cfg.batch, cfg.seq, cfg.d_model),
         requires_grad=True,
     )
 
@@ -260,24 +295,24 @@ def _layernorm_case() -> dict:
         ln.beta.grad = None
         ln.forward(x).sum().backward()
 
-    return _bench("layernorm_fwd_bwd", step, tokens=float(GPT_BATCH * GPT_SEQ))
+    return _bench("layernorm_fwd_bwd", step, tokens=cfg.tokens_per_step)
 
 
-def _softmax_case() -> dict:
+def _softmax_case(cfg: GptBenchConfig) -> dict:
     sm = Softmax(axis=-1)
     logits = Tensor(
-        np.random.standard_normal((GPT_BATCH, GPT_SEQ, GPT_VOCAB)).astype(np.float32).ravel(),
-        (GPT_BATCH, GPT_SEQ, GPT_VOCAB),
+        np.random.standard_normal((cfg.batch, cfg.seq, cfg.vocab)).astype(np.float32).ravel(),
+        (cfg.batch, cfg.seq, cfg.vocab),
     )
 
     def step():
         _ = sm(logits)
 
-    return _bench("softmax_fwd", step, tokens=float(GPT_BATCH * GPT_SEQ))
+    return _bench("softmax_fwd", step, tokens=cfg.tokens_per_step)
 
 
-def _attention_case(seq_len: int) -> dict:
-    batch, d_k = GPT_BATCH, GPT_D_MODEL // GPT_HEADS
+def _attention_case(cfg: GptBenchConfig, seq_len: int) -> dict:
+    batch, d_k = cfg.batch, cfg.d_model // cfg.heads
     q = Tensor(np.random.standard_normal((batch, seq_len, d_k)).astype(np.float32).ravel(), (batch, seq_len, d_k))
     k = Tensor(np.random.standard_normal((batch, seq_len, d_k)).astype(np.float32).ravel(), (batch, seq_len, d_k))
     v = Tensor(np.random.standard_normal((batch, seq_len, d_k)).astype(np.float32).ravel(), (batch, seq_len, d_k))
@@ -289,11 +324,11 @@ def _attention_case(seq_len: int) -> dict:
     return _bench(f"attention_fwd_seq{seq_len}", step, tokens=float(batch * seq_len))
 
 
-def _feedforward_case() -> dict:
-    ff = FeedForward(GPT_D_MODEL, ff_mult=4)
+def _feedforward_case(cfg: GptBenchConfig) -> dict:
+    ff = FeedForward(cfg.d_model, ff_mult=4)
     x = Tensor(
-        np.random.standard_normal((GPT_BATCH, GPT_SEQ, GPT_D_MODEL)).astype(np.float32).ravel(),
-        (GPT_BATCH, GPT_SEQ, GPT_D_MODEL),
+        np.random.standard_normal((cfg.batch, cfg.seq, cfg.d_model)).astype(np.float32).ravel(),
+        (cfg.batch, cfg.seq, cfg.d_model),
         requires_grad=True,
     )
 
@@ -303,27 +338,36 @@ def _feedforward_case() -> dict:
             p.grad = None
         ff.forward(x).sum().backward()
 
-    return _bench("feedforward_fwd_bwd", step, tokens=float(GPT_BATCH * GPT_SEQ))
+    return _bench("feedforward_fwd_bwd", step, tokens=cfg.tokens_per_step)
 
 
-def _cross_entropy_case() -> dict:
+def _cross_entropy_case(cfg: GptBenchConfig) -> dict:
     loss_fn = CrossEntropyLoss()
     logits = Tensor(
-        np.random.standard_normal((GPT_BATCH, GPT_SEQ, GPT_VOCAB)).astype(np.float32).ravel(),
-        (GPT_BATCH, GPT_SEQ, GPT_VOCAB),
+        np.random.standard_normal((cfg.batch, cfg.seq, cfg.vocab)).astype(np.float32).ravel(),
+        (cfg.batch, cfg.seq, cfg.vocab),
         requires_grad=True,
     )
-    targets = Tensor(np.random.randint(0, GPT_VOCAB, size=(GPT_BATCH, GPT_SEQ), dtype=np.int64).ravel(), (GPT_BATCH, GPT_SEQ))
+    targets = Tensor(
+        np.random.randint(0, cfg.vocab, size=(cfg.batch, cfg.seq), dtype=np.int64).ravel(),
+        (cfg.batch, cfg.seq),
+    )
 
     def step():
         logits.grad = None
         loss_fn(logits, targets).backward()
 
-    return _bench("cross_entropy_3d_fwd_bwd", step, warmup=4, runs=12, tokens=float(GPT_BATCH * GPT_SEQ))
+    return _bench(
+        "cross_entropy_3d_fwd_bwd",
+        step,
+        warmup=min(2, cfg.warmup),
+        runs=min(5, cfg.runs),
+        tokens=cfg.tokens_per_step,
+    )
 
 
-def _optimizer_case() -> dict:
-    model = GPT(GPT_VOCAB, GPT_D_MODEL, GPT_HEADS, GPT_LAYERS, GPT_SEQ)
+def _optimizer_case(cfg: GptBenchConfig) -> dict:
+    model = _make_gpt_model(cfg)
     opt = Adam(model.parameters(), learning_rate=3e-4)
 
     def step():
@@ -331,7 +375,7 @@ def _optimizer_case() -> dict:
             p.grad = np.random.standard_normal(p.size).astype(np.float32)
         opt.step()
 
-    return _bench("optimizer_adam_step", step, warmup=3, runs=10)
+    return _bench("optimizer_adam_step", step, warmup=1, runs=min(5, cfg.runs))
 
 
 def _scheduler_case() -> dict:
@@ -341,7 +385,7 @@ def _scheduler_case() -> dict:
     def step():
         sched.step()
 
-    return _bench("scheduler_step_lr_step", step, warmup=8, runs=40)
+    return _bench("scheduler_step_lr_step", step, warmup=2, runs=10)
 
 
 def _checkpoint_save_case() -> dict:
@@ -356,22 +400,22 @@ def _checkpoint_save_case() -> dict:
     return _bench("checkpoint_save_dense", step, warmup=2, runs=6)
 
 
-def run_full_suite() -> list[dict]:
+def run_full_suite(cfg: GptBenchConfig) -> list[dict]:
     return [
         _tensor_add_bwd_case(),
         _dense_case(),
         _conv2d_case(),
         _maxpool2d_case(),
-        _embedding_case(),
-        _layernorm_case(),
-        _softmax_case(),
-        _attention_case(128),
-        _attention_case(256),
-        _feedforward_case(),
-        _cross_entropy_case(),
-        _optimizer_case(),
+        _embedding_case(cfg),
+        _layernorm_case(cfg),
+        _softmax_case(cfg),
+        _attention_case(cfg, 128),
+        _attention_case(cfg, min(256, cfg.seq)),
+        _feedforward_case(cfg),
+        _cross_entropy_case(cfg),
+        _optimizer_case(cfg),
         _scheduler_case(),
-        *_gpt_suite(),
+        *run_gpt_suite(cfg),
         _checkpoint_save_case(),
     ]
 
@@ -386,12 +430,16 @@ def _rank(results: list[dict], profile: str) -> list[dict]:
     return ranked
 
 
-def print_report(results: list[dict], profile: str) -> None:
+def print_report(results: list[dict], profile: str, cfg: GptBenchConfig) -> None:
     device = "GPU" if using_gpu else "CPU"
     dtype = os.environ.get("NIMBLEML_DTYPE", "float32")
     ranked = _rank(results, profile)
     print(f"\nNimbleML benchmark ({device}, dtype={dtype})")
-    print(f"GPT config: vocab={GPT_VOCAB} d_model={GPT_D_MODEL} layers={GPT_LAYERS} heads={GPT_HEADS} batch={GPT_BATCH} seq={GPT_SEQ}")
+    print(
+        f"GPT config: vocab={cfg.vocab} d_model={cfg.d_model} layers={cfg.layers} "
+        f"heads={cfg.heads} batch={cfg.batch} seq={cfg.seq} "
+        f"(warmup={cfg.warmup} runs={cfg.runs})"
+    )
     print(f"Profile: {profile}")
     print("-" * 120)
     print(f"{'op':28} {'mean ms':>10} {'p50 ms':>10} {'p95 ms':>10} {'tok/s':>12} {'priority':>10}")
@@ -408,7 +456,7 @@ def print_report(results: list[dict], profile: str) -> None:
         print(f"  {idx}) {r['name']} — {r['mean_ms']:.3f} ms{tps}")
 
 
-def compare_torch_gpt() -> None:
+def compare_torch_gpt(cfg: GptBenchConfig) -> None:
     try:
         import torch
         import torch.nn as nn
@@ -420,7 +468,9 @@ def compare_torch_gpt() -> None:
         print("PyTorch CUDA unavailable; CPU comparison only.")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch, seq, vocab, d_model, n_layer, n_head = GPT_BATCH, GPT_SEQ, GPT_VOCAB, GPT_D_MODEL, GPT_LAYERS, GPT_HEADS
+    batch, seq = cfg.batch, cfg.seq
+    vocab, d_model, n_layer, n_head = cfg.vocab, cfg.d_model, cfg.layers, cfg.heads
+    warmup, runs = cfg.warmup, cfg.runs
 
     class TinyGPT(nn.Module):
         def __init__(self):
@@ -451,13 +501,13 @@ def compare_torch_gpt() -> None:
         opt.step()
 
     # warmup
-    for _ in range(4):
+    for _ in range(warmup):
         train_step()
     if device.type == "cuda":
         torch.cuda.synchronize()
 
     times = []
-    for _ in range(10):
+    for _ in range(runs):
         t0 = time.perf_counter()
         train_step()
         if device.type == "cuda":
@@ -469,20 +519,50 @@ def compare_torch_gpt() -> None:
     print("Goal: match or beat PyTorch tok/s on gpt_train_step after Tier 3 optimizations.")
 
 
-def run_once(*, full: bool, profile: str) -> list[dict]:
+def _resolve_gpt_config(
+    *,
+    train_shape: bool,
+    warmup: Optional[int],
+    runs: Optional[int],
+) -> GptBenchConfig:
+    base = TRAIN_GPT if train_shape else QUICK_GPT
+    if warmup is None and runs is None:
+        return base
+    return GptBenchConfig(
+        vocab=base.vocab,
+        d_model=base.d_model,
+        heads=base.heads,
+        layers=base.layers,
+        seq=base.seq,
+        batch=base.batch,
+        warmup=base.warmup if warmup is None else warmup,
+        runs=base.runs if runs is None else runs,
+    )
+
+
+def run_once(*, full: bool, cfg: GptBenchConfig) -> list[dict]:
     set_dtype("float32")
-    return run_full_suite() if full else run_gpt_suite()
+    return run_full_suite(cfg) if full else run_gpt_suite(cfg)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="NimbleML benchmarks (GPU default).")
+    parser = argparse.ArgumentParser(description="NimbleML benchmarks (quick GPT smoke by default).")
     parser.add_argument("--full", action="store_true", help="Run full micro-benchmark suite.")
+    parser.add_argument(
+        "--train-shape",
+        action="store_true",
+        help="Use toyGPT training dimensions (18L/512d/16k vocab — slow).",
+    )
     parser.add_argument("--cpu", action="store_true", help="Force CPU backend.")
     parser.add_argument("--profile", choices=("gpt", "text"), default="gpt")
     parser.add_argument("--count-graph", action="store_true", help="Print GPT forward autograd node counts.")
+    parser.add_argument("--compare-torch", action="store_true", help="Compare train-step tok/s vs PyTorch.")
     parser.add_argument("--json", type=str, default="", help="Write results JSON to path.")
     parser.add_argument("--both", action="store_true", help="Run CPU and GPU subprocesses.")
+    parser.add_argument("--warmup", type=int, default=None, help="Override warmup iterations.")
+    parser.add_argument("--runs", type=int, default=None, help="Override timed run count.")
     args = parser.parse_args()
+    cfg = _resolve_gpt_config(train_shape=args.train_shape, warmup=args.warmup, runs=args.runs)
 
     if args.both:
         base = os.environ.copy()
@@ -492,6 +572,8 @@ def main() -> int:
             cmd = [sys.executable, __file__]
             if args.full:
                 cmd.append("--full")
+            if args.train_shape:
+                cmd.append("--train-shape")
             cmd.extend(["--profile", args.profile])
             print(f"\n=== {dev.upper()} ===")
             subprocess.run(cmd, env=env, check=False)
@@ -512,15 +594,15 @@ def main() -> int:
     )
     if graph_only:
         set_dtype("float32")
-        print_gpt_graph_profile()
+        print_gpt_graph_profile(cfg)
         return 0
 
-    results = run_once(full=args.full, profile=args.profile)
-    print_report(results, args.profile)
+    results = run_once(full=args.full, cfg=cfg)
+    print_report(results, args.profile, cfg)
     if args.count_graph:
-        print_gpt_graph_profile()
+        print_gpt_graph_profile(cfg)
     if args.compare_torch:
-        compare_torch_gpt()
+        compare_torch_gpt(cfg)
     if args.json:
         Path(args.json).write_text(json.dumps(results, indent=2), encoding="utf-8")
     return 0

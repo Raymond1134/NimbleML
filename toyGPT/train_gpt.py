@@ -3,32 +3,30 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import math
 import os
-import random
 import sys
 import time
 from collections import deque
 from pathlib import Path
+
+import numpy as host_np  # host RNG for batch sampling (state is checkpointable)
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from toyGPT.config import TOYGPT_ROOT, ToyGPTConfig
-from toyGPT.data import load_wikitext_splits, random_batch
+from toyGPT.data import random_batch
+from toyGPT.fineweb import load_token_bin, prepare_corpus
+from toyGPT.sampling import prompt_ids_from_corpus, sample_text
+from toyGPT.train_utils import adamw_param_groups, load_rng_state, save_rng_state, seed_everything
 
 
 def _configure_backend(cfg: ToyGPTConfig) -> None:
     os.environ["NIMBLEML_DEVICE"] = cfg.device
     os.environ["NIMBLEML_DTYPE"] = cfg.dtype
-
-
-def _seed_everything(seed: int) -> None:
-    random.seed(seed)
-    import numpy as host_np
-
-    host_np.random.seed(seed)
 
 
 def _build_scheduler(optimizer, cfg: ToyGPTConfig):
@@ -45,43 +43,9 @@ def _vlog(cfg: ToyGPTConfig, msg: str) -> None:
         print(msg)
 
 
-def _load_or_train_tokenizer(cfg: ToyGPTConfig, train_text: str, *, resume_dir: Path | None) -> tuple:
-    from NimbleML.data.tokenizer import BPETokenizer
-
-    if resume_dir is not None:
-        tokenizer_path = resume_dir / "tokenizer.json"
-        if tokenizer_path.is_file():
-            _vlog(cfg, f"[data] loading tokenizer from checkpoint {tokenizer_path}")
-            return BPETokenizer.load(tokenizer_path), False
-
-    if cfg.tokenizer_path.is_file():
-        _vlog(cfg, f"[data] loading tokenizer from {cfg.tokenizer_path}")
-        return BPETokenizer.load(cfg.tokenizer_path), False
-
-    max_chars = cfg.tokenizer_max_chars if cfg.tokenizer_max_chars > 0 else None
-    _vlog(
-        cfg,
-        f"[data] training BPE | vocab_size={cfg.vocab_size} "
-        f"max_train_chars={max_chars or 'all'}",
-    )
-    t0 = time.perf_counter()
-    tokenizer = BPETokenizer()
-    tokenizer.train(
-        train_text,
-        vocab_size=cfg.vocab_size,
-        verbose=bool(cfg.verbose),
-        max_train_chars=max_chars,
-        log_every=cfg.bpe_log_every,
-    )
-    _vlog(cfg, f"[data] BPE train finished in {time.perf_counter() - t0:.2f}s")
-
-    cfg.tokenizer_path.parent.mkdir(parents=True, exist_ok=True)
-    tokenizer.save(cfg.tokenizer_path)
-    print(f"[data] saved tokenizer -> {cfg.tokenizer_path}")
-    return tokenizer, True
-
-
 def _eval_loss(model, loss_fn, val_ids, cfg: ToyGPTConfig, rng) -> float:
+    from NimbleML.utils.np_backend import using_gpu
+
     total = 0.0
     for _ in range(cfg.eval_batches):
         inputs, targets = random_batch(
@@ -90,60 +54,37 @@ def _eval_loss(model, loss_fn, val_ids, cfg: ToyGPTConfig, rng) -> float:
         logits = model.forward(inputs)
         loss = loss_fn(logits, targets)
         total += float(loss.data[0])
+        # Forward-only graphs still build backward closures (reference cycles);
+        # release each one before the next eval batch to bound GPU memory.
+        del logits, loss, inputs, targets
+        gc.collect()
+        if using_gpu:
+            import cupy
+
+            cupy.cuda.Device().synchronize()
     return total / cfg.eval_batches
-
-
-def _sample_text(model, tokenizer, cfg: ToyGPTConfig, prompt_ids: list[int]) -> str:
-    from NimbleML.utils.np_backend import np
-    from NimbleML.utils.tensor import Tensor
-
-    ids = list(prompt_ids)
-    for _ in range(cfg.sample_chars):
-        window = ids[-cfg.seq_len :]
-        if not window:
-            break
-        if len(window) < cfg.seq_len:
-            window = [0] * (cfg.seq_len - len(window)) + window
-        inputs = Tensor(window, (1, cfg.seq_len))
-        logits = model.forward(inputs)
-        logits_arr = np.asarray(logits.data, dtype=np.float32).reshape(cfg.seq_len, -1)
-        last = logits_arr[-1]
-        if cfg.temperature <= 0:
-            next_id = int(np.argmax(last))
-        else:
-            scaled = last / cfg.temperature
-            scaled -= np.max(scaled)
-            probs = np.exp(scaled)
-            probs /= np.sum(probs)
-            next_id = int(np.random.choice(len(probs), p=probs))
-        ids.append(next_id)
-    return tokenizer.decode(ids)
 
 
 def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
     _configure_backend(cfg)
-    _seed_everything(cfg.seed)
+    seed_everything(cfg.seed)
 
     from NimbleML.losses import CrossEntropyLoss
     from NimbleML.models import GPT
     from NimbleML.optimizers import AdamW
     from NimbleML.utils.clip_grad import clip_grad_norm_
-    from NimbleML.utils.np_backend import np, set_dtype
+    from NimbleML.utils.np_backend import apply_runtime_config, using_gpu
 
-    set_dtype(cfg.dtype)
-    rng = np.random.default_rng(cfg.seed)
+    apply_runtime_config(cfg.device, cfg.dtype)
+    # Host RNG: batch sampling happens on the CPU over a memmapped corpus, and a
+    # host NumPy generator's state serializes cleanly into checkpoints.
+    rng = host_np.random.default_rng(cfg.seed)
 
-    _vlog(cfg, f"[init] device={cfg.device} dtype={cfg.dtype} seed={cfg.seed}")
+    _vlog(cfg, f"[init] device={cfg.device} dtype={cfg.dtype} backend={'gpu' if using_gpu else 'cpu'} seed={cfg.seed}")
+    if cfg.dtype != "float32":
+        print(f"[init] warning: training dtype is {cfg.dtype!r}; float32 is recommended on GPU.")
+
     _vlog(cfg, f"[init] config={cfg.config_path}")
-
-    t0 = time.perf_counter()
-    print(f"[data] loading {cfg.dataset} ...")
-    train_text, val_text = load_wikitext_splits(cfg.dataset, cfg.cache_dir, cfg.data_dir)
-    _vlog(
-        cfg,
-        f"[data] loaded splits | train_chars={len(train_text):,} val_chars={len(val_text):,} "
-        f"elapsed={time.perf_counter() - t0:.2f}s",
-    )
 
     resume_dir = None
     if resume:
@@ -154,25 +95,22 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
             raise FileNotFoundError(f"Checkpoint not found: {resume_dir}")
         _vlog(cfg, f"[ckpt] resume path={resume_dir}")
 
-    tokenizer, bpe_just_trained = _load_or_train_tokenizer(cfg, train_text, resume_dir=resume_dir)
-
-    max_chars = cfg.tokenizer_max_chars if cfg.tokenizer_max_chars > 0 else None
-    t_enc = time.perf_counter()
-    cached_train = tokenizer.take_train_corpus_ids() if bpe_just_trained and max_chars is None else None
-    if cached_train is not None:
-        train_ids = cached_train
-        _vlog(cfg, f"[data] reusing BPE train corpus ids | tokens={len(train_ids):,}")
-    else:
-        _vlog(cfg, f"[data] encoding train split ...")
-        train_ids = tokenizer.encode(train_text, verbose=bool(cfg.verbose))
-        _vlog(cfg, f"[data] train encoded | tokens={len(train_ids):,}")
-
-    _vlog(cfg, f"[data] encoding val split ...")
-    val_ids = tokenizer.encode(val_text, verbose=bool(cfg.verbose))
+    t0 = time.perf_counter()
+    print(f"[data] preparing {cfg.dataset} ({cfg.hf_subset}) ...")
+    tokenizer, tokenizer_path, train_path, val_path, meta = prepare_corpus(
+        cfg, resume_dir=resume_dir, verbose=bool(cfg.verbose)
+    )
+    train_ids = load_token_bin(train_path)
+    val_ids = load_token_bin(val_path)
     _vlog(
         cfg,
-        f"[data] corpus tokenized | train_tokens={len(train_ids):,} val_tokens={len(val_ids):,} "
-        f"encode_elapsed={time.perf_counter() - t_enc:.2f}s",
+        f"[data] corpus ready | train_tokens={meta['train_tokens']:,} "
+        f"val_tokens={meta['val_tokens']:,} elapsed={time.perf_counter() - t0:.1f}s",
+    )
+    _vlog(
+        cfg,
+        f"[data] corpus memmapped on host (uint16); batches move to "
+        f"{'GPU' if using_gpu else 'CPU'} as int64",
     )
 
     vocab_size = tokenizer.vocab_size
@@ -190,10 +128,11 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         ff_mult=cfg.ff_mult,
     )
     optimizer = AdamW(
-        model.parameters(),
+        adamw_param_groups(model, lr=cfg.lr, weight_decay=cfg.weight_decay),
         learning_rate=cfg.lr,
         beta1=0.9,
         beta2=0.95,
+        epsilon=1e-8,
         weight_decay=cfg.weight_decay,
     )
     scheduler = _build_scheduler(optimizer, cfg)
@@ -206,6 +145,7 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
 
     step = 0
     best_val_loss: float | None = None
+    evals_without_improvement = 0
     checkpoint_root = cfg.checkpoint_dir
 
     if resume_dir is not None:
@@ -214,8 +154,9 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         state, tokenizer = load_checkpoint(resume_dir, model=model, optimizer=optimizer)
         step = int(state["step"])
         best_val_loss = state.get("best_val_loss")
-        train_ids = tokenizer.encode(train_text, verbose=bool(cfg.verbose))
-        val_ids = tokenizer.encode(val_text, verbose=bool(cfg.verbose))
+        rng_path = resume_dir / "rng.json"
+        if rng_path.is_file():
+            load_rng_state(rng_path, rng)
         for _ in range(step):
             scheduler.step()
         model.clear_pos_encoding_cache()
@@ -240,10 +181,43 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         logits = model.forward(inputs)
         loss = loss_fn(logits, targets)
         loss.backward()
-        clip_grad_norm_(model.parameters(), cfg.grad_clip)
-        optimizer.step()
+        loss_val = float(loss.data[0])
+        del logits, loss, inputs, targets
+
+        if not math.isfinite(loss_val):
+            print(f"[train] warning: non-finite loss={loss_val} at step {step + 1}, skipping update")
+            gc.collect()
+            if using_gpu:
+                import cupy
+
+                cupy.cuda.Device().synchronize()
+            step += 1
+            continue
+
+        grad_norm = clip_grad_norm_(model.parameters(), cfg.grad_clip)
+        if not math.isfinite(grad_norm):
+            print(f"[train] warning: non-finite grad_norm at step {step + 1}, skipping update")
+            optimizer.zero_grad(set_to_none=True)
+            gc.collect()
+            if using_gpu:
+                import cupy
+
+                cupy.cuda.Device().synchronize()
+            step += 1
+            continue
+
         model.clear_pos_encoding_cache()
+        optimizer.step()
         scheduler.step()
+        # Autograd nodes form reference cycles (each op's backward closure
+        # captures its own output), so a graph is not freed by refcounting
+        # alone. Collect it now; otherwise graphs pile up and GPU memory climbs
+        # until the pool overflows VRAM and Windows pages it (~10x slower).
+        gc.collect()
+        if using_gpu:
+            import cupy
+
+            cupy.cuda.Device().synchronize()
         step += 1
 
         elapsed = time.perf_counter() - t0
@@ -251,17 +225,19 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         tok_s = tokens_per_step / elapsed if elapsed > 0 else 0.0
         step_times.append(step_ms)
         step_tokens.append(tok_s)
-        loss_val = float(loss.data[0])
         lr = optimizer.get_lr()[0]
 
         if step % cfg.log_every == 0 or step == 1:
             avg_ms = sum(step_times) / len(step_times)
             avg_tok_s = sum(step_tokens) / len(step_tokens)
+            grad_msg = f" grad_norm={grad_norm:.3f}" if cfg.log_grad_norm else ""
             print(
-                f"step={step:6d} loss={loss_val:.4f} lr={lr:.2e} "
+                f"step={step:6d} loss={loss_val:.4f} lr={lr:.2e}{grad_msg} "
                 f"tok/s={tok_s:,.0f} step_ms={step_ms:.1f} "
                 f"avg_tok/s={avg_tok_s:,.0f} avg_ms={avg_ms:.1f}"
             )
+            if loss_val > 100.0 and step > cfg.warmup_steps:
+                print("[train] warning: loss spike — consider lowering lr or increasing warmup.")
 
         if step % cfg.eval_every == 0 or step == cfg.max_steps:
             val_loss = _eval_loss(model, loss_fn, val_ids, cfg, rng)
@@ -269,15 +245,22 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
             print(f"[eval] step={step:6d} val_loss={val_loss:.4f} ppl={ppl:.2f}")
 
             if cfg.verbose:
-                prompt = train_ids[: cfg.seq_len]
-                sample = _sample_text(model, tokenizer, cfg, prompt)
-                preview = sample[: cfg.sample_chars].replace("\n", "\\n")
+                prompt = prompt_ids_from_corpus(train_ids, cfg.seq_len)
+                preview = sample_text(
+                    model,
+                    tokenizer,
+                    prompt_ids=prompt,
+                    seq_len=cfg.seq_len,
+                    max_new_tokens=cfg.sample_chars,
+                    temperature=cfg.temperature,
+                )[: cfg.sample_chars].replace("\n", "\\n")
                 print(f"[eval] sample: {preview}")
 
             from toyGPT.checkpoint import copy_checkpoint, save_checkpoint
 
             if best_val_loss is None or val_loss < best_val_loss:
                 best_val_loss = val_loss
+                evals_without_improvement = 0
                 save_checkpoint(
                     checkpoint_root / "best",
                     model=model,
@@ -286,8 +269,17 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
                     best_val_loss=best_val_loss,
                     config=cfg.to_dict(),
                     tokenizer=tokenizer,
+                    rng=rng,
                 )
                 print(f"[ckpt] saved best (val_loss={val_loss:.4f})")
+            else:
+                evals_without_improvement += 1
+                if cfg.early_stop_patience > 0 and evals_without_improvement >= cfg.early_stop_patience:
+                    print(
+                        f"[train] early stop: val_loss flat for {evals_without_improvement} evals "
+                        f"(patience={cfg.early_stop_patience})"
+                    )
+                    break
 
         if step % cfg.checkpoint_every == 0 or step == cfg.max_steps:
             from toyGPT.checkpoint import copy_checkpoint, save_checkpoint
@@ -301,6 +293,7 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
                 best_val_loss=best_val_loss,
                 config=cfg.to_dict(),
                 tokenizer=tokenizer,
+                rng=rng,
             )
             copy_checkpoint(step_dir, checkpoint_root / "latest")
             print(f"[ckpt] saved step_{step} -> latest")
@@ -309,6 +302,14 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Generated samples can contain characters outside the Windows console's
+    # default cp1252 codepage; print them with replacement instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(description="Train a toy GPT on WikiText with BPE.")
     parser.add_argument(
         "--config",

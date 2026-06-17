@@ -10,34 +10,56 @@ seq_len = 256
 ff_mult = 4
 
 [train]
-batch_size = 16
+# batch_size 8 fits in 8 GB VRAM with headroom (~4.6 G steady) and is near the
+# throughput peak. Larger batches overflow VRAM and Windows pages GPU memory to
+# system RAM (~10x slower per step). 6 is marginally faster; 12 is the max fit.
+batch_size = 8
 lr = 3.0e-4
 weight_decay = 0.1
-warmup_steps = 100
-max_steps = 5000
+warmup_steps = 1000
+# Plan A: 65M params overtrained ~2x past Chinchilla (40 tok/param) for a stronger
+# small model. 2.6B tokens / (batch_size*seq_len = 2048 tok/step) ~= 1.27M steps
+# (~1 pass over the 2.6B-token corpus). ~26 days at ~1.75 s/step on an RTX 3070.
+max_steps = 1270000
 grad_clip = 1.0
 dtype = "float32"
 device = "gpu"
-checkpoint_every = 500
+# ~7.5 min at ~1.8 s/step; saves step_N + copies latest
+checkpoint_every = 250
 checkpoint_dir = "checkpoints"
 
+# 0 = disabled; stop after N evals with no val_loss improvement
+early_stop_patience = 0
+
 [data]
-dataset = "wikitext-2"
+# FineWeb-Edu streamed from HuggingFace; tokens cached as a uint16 .bin so
+# re-runs and resumes skip download + re-encoding. NOTE: no '_' digit
+# separators here (the 3.9 fallback TOML parser does not support them).
+dataset = "fineweb-edu"
+hf_repo = "HuggingFaceFW/fineweb-edu"
+hf_subset = "sample-10BT"
+# 2.6B tokens (~2x Chinchilla for a 65M model). sample-10BT (~10B tokens) is
+# large enough to supply this without repeats.
+train_tokens = 2600000000
+val_tokens = 1000000
+# MB of streamed text used to train the BPE vocab (one-time).
+tokenizer_sample_mb = 400
 data_dir = "data"
 cache_dir = "data/cache"
 tokenizer_path = "data/tokenizer.json"
-# 0 = use full train split for BPE training; set e.g. 10_000_000 to cap
-tokenizer_max_chars = 0
 
 [eval]
-eval_every = 200
-eval_batches = 20
+# val_loss + best/ ckpt update ~every 15 mins at ~1.8 s/step
+eval_every = 500
+eval_batches = 10
 sample_chars = 200
 temperature = 0.8
 
 [log]
 verbose = 1
-log_every = 1
+# log_every syncs the GPU to read the loss; every 20 steps (~36 s) is responsive
+log_every = 25
+log_grad_norm = 0
 bpe_log_every = 5
 rolling_avg = 50
 

@@ -3,11 +3,74 @@ from math import prod
 from . import np_backend
 from .np_backend import np
 
+
+def _NOOP_BACKWARD():
+    return None
+
+
+_EMPTY_PREV = frozenset()
+
+
+def _save_for_backward(arr):
+    """Own-memory copy for autograd closures (avoids stale CuPy pool views)."""
+    return np.asarray(arr).copy()
+
+
+def _is_stable_matmul_operand(tensor):
+    """Parameter tensors (and their transpose) stay valid through backward."""
+    if tensor._op == "":
+        return True
+    if tensor._op == "transpose" and len(tensor._prev) == 1:
+        parent = next(iter(tensor._prev))
+        return parent._op == ""
+    return False
+
+
+def _matmul_right_view(other, right_shape, save_right):
+    if save_right is not None:
+        return save_right.reshape(right_shape)
+    if other._op == "transpose" and len(other._prev) == 1:
+        parent = next(iter(other._prev))
+        if parent._op == "":
+            parent_arr = Tensor._asarray(parent.data).reshape(parent.shape)
+            return np.swapaxes(parent_arr, -2, -1)
+    return Tensor._asarray(other.data).reshape(right_shape)
+
+
 class Tensor:
     """Public class Tensor."""
 
     @staticmethod
+    def _as_int64(data):
+        from .np_backend import as_int64
+
+        return as_int64(data)
+
+    @classmethod
+    def from_int64(cls, data, shape):
+        """Integer token/index tensor (int64 on the active backend, no grad)."""
+        arr = cls._as_int64(data).reshape(-1)
+        if prod(shape) != arr.size:
+            raise ValueError("Shape does not match number of int64 elements.")
+        obj = cls.__new__(cls)
+        obj.data = arr
+        obj.shape = shape
+        obj.requires_grad = False
+        obj.grad = None
+        obj._backward = lambda: None
+        obj._prev = set()
+        obj._op = ""
+        obj._validate()
+        return obj
+
+    @staticmethod
+    def _is_int64_tensor(tensor):
+        return getattr(tensor.data, "dtype", None) == np.int64
+
+    @staticmethod
     def _asarray(data):
+        if getattr(data, "dtype", None) == np.int64:
+            return np.asarray(data)
         return np.asarray(data, dtype=np_backend.dtype)
 
     def __init__(self, data, shape, requires_grad=False, _children=(), _op=""):
@@ -57,8 +120,17 @@ class Tensor:
         else:
             self.grad = np.zeros(self.size, dtype=np_backend.dtype)
 
-    def backward(self, grad=None):
-        """Public function backward."""
+    def backward(self, grad=None, retain_graph=False):
+        """Run reverse-mode autodiff from this tensor.
+
+        Unless ``retain_graph=True``, each node's ``_backward`` closure is
+        released once it has run. Those closures capture their own output
+        tensor (and the activations needed for the backward), forming reference
+        cycles that Python's refcounting cannot reclaim on its own. Clearing
+        them lets the graph free immediately instead of lingering until the
+        cyclic GC runs -- without this, a fast training loop piles up graphs and
+        exhausts GPU memory.
+        """
         if grad is None:
             if self.size != 1:
                 raise ValueError("grad must be specified for non-scalar tensors.")
@@ -86,13 +158,18 @@ class Tensor:
         build(self)
         for node in reversed(topo):
             node._backward()
+
+        if not retain_graph:
+            for node in topo:
+                node._backward = _NOOP_BACKWARD
+                node._prev = _EMPTY_PREV
     
     def _accumulate_grad(self, grad):
         if not self.requires_grad:
             return
-        grad = np.asarray(grad, dtype=np_backend.dtype)
+        grad = np.asarray(grad, dtype=np_backend.dtype).reshape(-1)
         if self.grad is None:
-            self.grad = np.array(grad, dtype=np_backend.dtype)
+            self.grad = grad.copy()
         else:
             self.grad += grad
 
@@ -190,6 +267,13 @@ class Tensor:
         out_shape, shape_a, shape_b = self._broadcast_shape(a.shape, b.shape)
         a_np = Tensor._asarray(a.data).reshape(shape_a)
         b_np = Tensor._asarray(b.data).reshape(shape_b)
+        # Only copy operands the backward rule reads (mul/div/pow). Add/sub only
+        # pass grad through and do not need saved inputs; copying every residual
+        # add would ~double activation memory on deep models.
+        needs_a = a.requires_grad and op_name in ("mul", "div", "pow")
+        needs_b = b.requires_grad and op_name in ("mul", "div", "pow")
+        save_a = _save_for_backward(a_np) if needs_a else a_np
+        save_b = _save_for_backward(b_np) if needs_b else b_np
         out_data = op(a_np, b_np).ravel()
 
         out = Tensor(out_data, out_shape, requires_grad=a.requires_grad or b.requires_grad, _children=(a, b), _op=op_name)
@@ -198,8 +282,8 @@ class Tensor:
             if out.grad is None:
                 return
             grad_out = out.grad.reshape(out_shape)
-            grad_a = grad_a_rule(grad_out, a_np, b_np)
-            grad_b = grad_b_rule(grad_out, a_np, b_np)
+            grad_a = grad_a_rule(grad_out, save_a, save_b)
+            grad_b = grad_b_rule(grad_out, save_a, save_b)
             if a.requires_grad:
                 a._accumulate_grad(Tensor._reduce_broadcast_grad(grad_a, a.shape))
             if b.requires_grad:
@@ -267,6 +351,13 @@ class Tensor:
         left = Tensor._asarray(self.data).reshape(left_shape)
         right = Tensor._asarray(other.data).reshape(right_shape)
 
+        save_left = _save_for_backward(left) if other.requires_grad else None
+        save_right = (
+            _save_for_backward(right)
+            if self.requires_grad and not _is_stable_matmul_operand(other)
+            else None
+        )
+
         try:
             out_arr = np.matmul(left, right)
         except ValueError as exc:
@@ -286,10 +377,10 @@ class Tensor:
                 return
 
             grad_out = Tensor._asarray(out.grad).reshape(out_shape)
-            left_arr = Tensor._asarray(self.data).reshape(left_shape)
-            right_arr = Tensor._asarray(other.data).reshape(right_shape)
+            left_arr = save_left.reshape(left_shape) if save_left is not None else None
 
             if self.requires_grad:
+                right_arr = _matmul_right_view(other, right_shape, save_right)
                 if right_arr.ndim == 1:
                     grad_left = np.matmul(grad_out, right_arr)
                 else:
@@ -300,9 +391,9 @@ class Tensor:
             if other.requires_grad:
                 if left_arr.ndim == 1:
                     grad_right = np.matmul(left_arr, grad_out)
-                elif right_arr.ndim == 1:
+                elif len(right_shape) == 1:
                     grad_right = np.matmul(left_arr[..., np.newaxis], grad_out)
-                elif right_arr.ndim == 2:
+                elif len(right_shape) == 2:
                     contract_axes = (list(range(left_arr.ndim - 1)), list(range(grad_out.ndim - 1)))
                     grad_right = np.tensordot(left_arr, grad_out, axes=contract_axes)
                 else:

@@ -1,5 +1,8 @@
 """Unified array backend: CuPy when a CUDA device is available, NumPy otherwise."""
+from __future__ import annotations
+
 import os
+from typing import Optional
 
 _DEVICE_PREFERENCE = os.environ.get("NIMBLEML_DEVICE", "auto").strip().lower()
 
@@ -46,6 +49,11 @@ _DTYPE_PREFERENCE = os.environ.get("NIMBLEML_DTYPE", "float32").strip().lower()
 
 def _resolve_dtype(name):
     name = name.strip().lower()
+    if name in ("float16", "f16", "half", "bfloat16", "bf16"):
+        raise ValueError(
+            "fp16/bf16 are not supported yet; use float32 on GPU until the "
+            "float32 path matches a PyTorch baseline."
+        )
     if name in ("float32", "f32", "single"):
         return np.float32
     if name in ("float64", "f64", "double"):
@@ -53,9 +61,28 @@ def _resolve_dtype(name):
     raise ValueError("dtype must be 'float32' or 'float64'")
 
 
-# Global compute dtype. float32 is ~2x faster on CPU and much faster on GPU,
-# while using half the memory; float64 is available for strict gradchecks.
+# Global compute dtype. float32 is the training default on GPU; float64 is for
+# gradcheck / strict CPU tests only. fp16/bf16 are intentionally unsupported
+# until the float32 GPU path matches a PyTorch baseline.
 dtype = _resolve_dtype(_DTYPE_PREFERENCE)
+
+
+def as_int64(data):
+    """Array of token indices on the active backend (CPU NumPy or GPU CuPy)."""
+    return np.asarray(data, dtype=np.int64)
+
+
+def apply_runtime_config(device: Optional[str] = None, dtype_name: Optional[str] = None):
+    """Apply device/dtype after ``NIMBLEML_*`` env vars or explicit arguments."""
+    if device is not None:
+        set_device(device)
+    elif os.environ.get("NIMBLEML_DEVICE"):
+        set_device(os.environ["NIMBLEML_DEVICE"])
+
+    if dtype_name is not None:
+        set_dtype(dtype_name)
+    elif os.environ.get("NIMBLEML_DTYPE"):
+        set_dtype(os.environ["NIMBLEML_DTYPE"])
 
 
 def get_dtype():

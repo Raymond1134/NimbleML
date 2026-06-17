@@ -1,7 +1,63 @@
 """Root mean square layer normalization over the last dimension."""
+from math import prod
+
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor
+from NimbleML.utils.tensor import Tensor, _save_for_backward
+
+
+def fused_rms_norm(x, gamma, epsilon=1e-5):
+    """Fused RMSNorm with a single autograd node."""
+    in_shape = x.shape
+    d = in_shape[-1]
+    if d != gamma.shape[0]:
+        raise ValueError(f"Expected last dim {gamma.shape[0]}, got {d}")
+
+    row_count = prod(in_shape[:-1]) if len(in_shape) > 1 else 1
+    x_arr = Tensor._asarray(x.data).reshape(row_count, d)
+    g_arr = Tensor._asarray(gamma.data).reshape(d)
+
+    ms = np.mean(x_arr * x_arr, axis=-1, keepdims=True)
+    rms = np.sqrt(ms + epsilon)
+    out_arr = ((x_arr / rms) * g_arr).reshape(in_shape)
+
+    save_x = _save_for_backward(x_arr)
+
+    requires_grad = x.requires_grad or gamma.requires_grad
+    out = Tensor(
+        out_arr.ravel(),
+        in_shape,
+        requires_grad=requires_grad,
+        _children=(x, gamma),
+        _op="fused_rms_norm",
+    )
+
+    def _backward():
+        if out.grad is None:
+            return
+
+        grad_out = Tensor._asarray(out.grad).reshape(row_count, d)
+        ms = np.mean(save_x * save_x, axis=-1, keepdims=True)
+        rms_b = np.sqrt(ms + epsilon)
+        if gamma.requires_grad:
+            x_hat = save_x / rms_b
+            grad_gamma = np.sum(grad_out * x_hat, axis=0)
+            gamma._accumulate_grad(grad_gamma.ravel())
+
+        if x.requires_grad:
+            grad_x_hat = grad_out * g_arr
+            grad_ms = np.sum(
+                grad_x_hat * save_x * (-0.5) * (ms + epsilon) ** (-1.5),
+                axis=-1,
+                keepdims=True,
+            )
+            grad_x_from_ms = (2.0 / d) * save_x * grad_ms
+            grad_x_direct = grad_x_hat / rms_b
+            grad_x = grad_x_direct + grad_x_from_ms
+            x._accumulate_grad(grad_x.reshape(in_shape).ravel())
+
+    out._backward = _backward
+    return out
 
 
 class RMSNorm(Module):
@@ -20,10 +76,7 @@ class RMSNorm(Module):
         """Normalize by RMS over the last dimension and apply ``gamma``."""
         if inputs.shape[-1] != self.normalized_shape:
             raise ValueError(f"Expected last dim {self.normalized_shape}, got {inputs.shape[-1]}")
-
-        ms = (inputs ** 2).mean(axis=-1, keepdims=True)
-        rms = (ms + self.epsilon).sqrt()
-        return inputs / rms * self.gamma
+        return fused_rms_norm(inputs, self.gamma, epsilon=self.epsilon)
 
     def parameters(self):
         """Return learnable parameters."""
