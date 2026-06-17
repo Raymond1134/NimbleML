@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from NimbleML.data.tokenizer import BYTE_VOCAB_SIZE, BPETokenizer
+from NimbleML.data import BYTE_VOCAB_SIZE, BPETokenizer
 
 
 def test_bpe_roundtrip_toy_corpus():

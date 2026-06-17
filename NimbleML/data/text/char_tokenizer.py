@@ -1,9 +1,21 @@
-"""Char-level text helpers for language modeling."""
+"""Character-level text utilities for language modeling."""
 from NimbleML.utils.tensor import Tensor
 
-
 def build_vocab(text):
-    """Build char <-> index maps from a string."""
+    """Builds character-to-index and index-to-character mappings.
+
+    Args:
+        text (str): Input corpus.
+
+    Returns:
+        tuple[dict, list]:
+            - char_to_idx: Mapping from character to integer index.
+            - idx_to_char: List mapping indices back to characters.
+    
+    Examples:
+        >>> text = "Hello, world!"
+        >>> char_to_idx, idx_to_char = build_vocab(text)
+    """
     chars = sorted(set(text))
     char_to_idx = {ch: i for i, ch in enumerate(chars)}
     idx_to_char = chars
@@ -11,17 +23,57 @@ def build_vocab(text):
 
 
 def encode(text, char_to_idx):
-    """Convert a string to a list of character indices."""
+    """Encodes a string into a list of integer token IDs.
+
+    Args:
+        text (str): Input string.
+        char_to_idx (dict): Character-to-index mapping.
+
+    Returns:
+        list[int]: Encoded token IDs.
+    
+    Examples:
+        >>> text = "Hello, world!"
+        >>> char_to_idx = {"H": 0, "e": 1, "l": 2, "o": 3, " ": 4, "w": 5, "r": 6, "d": 7, "!": 8}
+        >>> ids = encode(text, char_to_idx)
+    """
     return [char_to_idx[ch] for ch in text]
 
 
 def decode(ids, idx_to_char):
-    """Convert a list of character indices back to a string."""
+    """Decodes a list of token IDs back into a string.
+
+    Args:
+        ids (list[int]): Token IDs.
+        idx_to_char (list): Index-to-character mapping.
+
+    Returns:
+        str: Decoded string.
+    
+    Examples:
+        >>> idx_to_char = ["H", "e", "l", "o", " ", "w", "r", "d", "!"]
+        >>> ids = [0, 1, 2, 2, 3, 4, 5, 2, 6, 7, 8]
+        >>> text = decode(ids, idx_to_char)
+    """
     return "".join(idx_to_char[i] for i in ids)
 
 
 def load_text(path):
-    """Read a text file, build char vocab, return encoded ids plus vocab maps."""
+    """Loads a text file and builds a character-level vocabulary.
+
+    Args:
+        path (str): Path to text file.
+
+    Returns:
+        tuple:
+            - ids (list[int]): Encoded dataset.
+            - char_to_idx (dict): Vocabulary mapping.
+            - idx_to_char (list): Reverse vocabulary mapping.
+    
+    Examples:
+        >>> path = "data/text/shakespeare.txt"
+        >>> ids, char_to_idx, idx_to_char = load_text(path)
+    """
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
 
@@ -30,22 +82,49 @@ def load_text(path):
     return ids, char_to_idx, idx_to_char
 
 
-def _rows_to_tensors(rows):
-    """Split full token rows into input/target pairs and wrap as Tensors."""
-    inputs = [row[:-1] for row in rows]
-    targets = [row[1:] for row in rows]
-    batch_size = len(rows)
-    seq_len = len(inputs[0])
-    input_data = [token for row in inputs for token in row]
-    target_data = [token for row in targets for token in row]
-    return (
-        Tensor(input_data, (batch_size, seq_len)),
-        Tensor(target_data, (batch_size, seq_len)),
-    )
-
-
 def batch_sequences(ids, batch_size, seq_len=None):
-    """Yield (inputs, targets) for next-token prediction."""
+    """Generates batches for next-token prediction training.
+    Produces input-target pairs where: input[t] -> target[t+1]
+
+    Supports:
+    - Flat token streams
+    - Pre-segmented sequences
+
+    Args:
+        ids (list[int] or list[list[int]]):
+            Token sequence(s).
+        batch_size (int):
+            Number of sequences per batch.
+        seq_len (int, optional):
+            Sequence length (required for flat input).
+
+    Yields:
+        tuple[Tensor, Tensor]:
+            - inputs: shape (batch_size, seq_len)
+            - targets: shape (batch_size, seq_len)
+
+    Raises:
+        ValueError: If batch_size is less than 1 or seq_len is less than 1.
+        ValueError: If ids is a flat list of integers and seq_len is not provided.
+    
+    Examples:
+        >>> ids = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+        >>> batch_size = 2
+        >>> seq_len = 3
+        >>> inputs, targets = batch_sequences(ids, batch_size, seq_len)
+    """
+    def rows_to_tensors(rows):
+        inputs = [row[:-1] for row in rows]
+        targets = [row[1:] for row in rows]
+        batch_size_local = len(rows)
+        row_seq_len = len(inputs[0])
+        input_data = [token for row in inputs for token in row]
+        target_data = [token for row in targets for token in row]
+        return (
+            Tensor(input_data, (batch_size_local, row_seq_len)),
+            Tensor(target_data, (batch_size_local, row_seq_len)),
+        )
+
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1.")
 
@@ -64,7 +143,7 @@ def batch_sequences(ids, batch_size, seq_len=None):
                 if len(seq) < max_len:
                     seq = seq + [seq[-1]] * (max_len - len(seq))
                 rows.append(seq)
-            yield _rows_to_tensors(rows)
+            yield rows_to_tensors(rows)
         return
 
     if seq_len is None:
@@ -82,4 +161,4 @@ def batch_sequences(ids, batch_size, seq_len=None):
             ids[start + i * row_len:start + (i + 1) * row_len]
             for i in range(batch_size)
         ]
-        yield _rows_to_tensors(rows)
+        yield rows_to_tensors(rows)
