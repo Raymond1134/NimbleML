@@ -1,6 +1,7 @@
 """Autograd tensor with NumPy/CuPy backend"""
 from math import prod
 from . import np_backend
+from .axis import normalize_axis, normalize_axes
 from .np_backend import np
 
 
@@ -455,11 +456,7 @@ class Tensor:
             else:
                 raise TypeError("axis must be int, tuple, list, or None")
 
-            axis = tuple(ax + self.ndim if ax < 0 else ax for ax in axis)
-            for ax in axis:
-                if ax < 0 or ax >= self.ndim:
-                    raise ValueError(f"axis {ax} out of range for ndim {self.ndim}")
-            reduce_axes = axis
+            reduce_axes = normalize_axes(self.ndim, axis)
 
         arr = self.data.reshape(self.shape) if self.shape else self.data.reshape(())
         out_arr = np.sum(arr, axis=reduce_axes, keepdims=keepdims)
@@ -485,8 +482,7 @@ class Tensor:
         if axis is None:
             count = float(self.size)
         else:
-            axes = axis if isinstance(axis, (tuple, list)) else (axis,)
-            axes = tuple(ax + self.ndim if ax < 0 else ax for ax in axes)
+            axes = normalize_axes(self.ndim, axis)
             count = float(prod(self.shape[ax] for ax in axes))
         return summed_tensor / count
 
@@ -541,13 +537,9 @@ class Tensor:
                 raise ValueError("start_dim and end_dim must be 0 or -1 for scalar tensors.")
             return self.reshape((1,))
 
-        if start_dim < 0:
-            start_dim += self.ndim
-        if end_dim < 0:
-            end_dim += self.ndim
+        start_dim = normalize_axis(self.ndim, start_dim)
+        end_dim = normalize_axis(self.ndim, end_dim)
 
-        if start_dim < 0 or end_dim < 0 or start_dim >= self.ndim or end_dim >= self.ndim:
-            raise ValueError("start_dim and end_dim must be within tensor dimensions.")
         if start_dim > end_dim:
             raise ValueError("start_dim must be less than or equal to end_dim.")
 
@@ -567,11 +559,9 @@ class Tensor:
         else:
             raise TypeError("axis must be int, tuple, list, or None")
         
-        axes = tuple(ax + self.ndim if ax < 0 else ax for ax in axis)
+        axes = normalize_axes(self.ndim, axis)
         if len(set(axes)) != len(axes):
             raise ValueError("axis has duplicates")
-        if any(ax < 0 or ax >= self.ndim for ax in axes):
-            raise ValueError(f"axis out of range for ndim {self.ndim}")
         
         for ax in axes:
             if self.shape[ax] != 1:
@@ -590,11 +580,9 @@ class Tensor:
             raise TypeError("axis must be int, tuple, or list")
 
         new_ndim = self.ndim + len(axis)
-        axes = tuple(ax + new_ndim if ax < 0 else ax for ax in axis)
+        axes = normalize_axes(new_ndim, axis)
         if len(set(axes)) != len(axes):
             raise ValueError("axis has duplicates")
-        if any(ax < 0 or ax >= new_ndim for ax in axes):
-            raise ValueError(f"axis out of range for resulting ndim {new_ndim}")
 
         axes_set = set(axes)
         new_shape = []

@@ -1,14 +1,12 @@
 """Cross-entropy loss (1D, 2D, or 3D sequence logits)"""
+from NimbleML.activations.softmax import softmax_forward
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
 def _softmax_rows(logits_arr):
-    max_vals = np.max(logits_arr, axis=1, keepdims=True)
-    shifted = logits_arr - max_vals
-    exps = np.exp(shifted)
-    return exps / np.sum(exps, axis=1, keepdims=True)
+    return softmax_forward(logits_arr, axis=1)
 
 
 def _log_softmax_cross_entropy(logits_arr, label_indices):

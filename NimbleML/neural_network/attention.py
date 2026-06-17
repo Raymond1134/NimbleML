@@ -1,7 +1,6 @@
 """Scaled dot-product attention (single-head and multi-head)"""
 from functools import lru_cache
-from math import prod
-
+from NimbleML.activations.softmax import softmax_backward, softmax_forward
 from NimbleML.layers import Dense
 from NimbleML.neural_network import Module
 from NimbleML.utils import np_backend
@@ -34,19 +33,6 @@ def _resolve_mask(mask, seq_len):
     if mask_arr.shape != (seq_len, seq_len):
         raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_arr.shape}")
     return mask_arr
-
-
-def _softmax_last_axis(scores):
-    max_vals = np.max(scores, axis=-1, keepdims=True)
-    exps = np.exp(scores - max_vals)
-    return exps / np.sum(exps, axis=-1, keepdims=True)
-
-
-def _softmax_last_axis_backward(grad_out, probs, row_count, last_dim):
-    grad_out_2d = grad_out.reshape(row_count, last_dim)
-    probs_2d = probs.reshape(row_count, last_dim)
-    dot = np.sum(grad_out_2d * probs_2d, axis=1, keepdims=True)
-    return (probs_2d * (grad_out_2d - dot)).reshape(grad_out.shape)
 
 
 def _split_heads(tensor, batch, seq_len, num_heads, d_k):
@@ -132,7 +118,7 @@ def scaled_dot_product_attention(Q, K, V, scale, mask=None):
     scores = np.matmul(q_arr, np.swapaxes(k_arr, -2, -1)) / scale
     if mask_arr is not None:
         scores = scores + mask_arr
-    probs = _softmax_last_axis(scores)
+    probs = softmax_forward(scores, axis=-1)
     out_arr = np.matmul(probs, v_arr)
 
     save_q = _save_for_backward(q_arr)
@@ -157,11 +143,9 @@ def scaled_dot_product_attention(Q, K, V, scale, mask=None):
         scores = np.matmul(save_q, np.swapaxes(save_k, -2, -1)) / scale_f
         if mask_arr is not None:
             scores = scores + mask_arr
-        probs = _softmax_last_axis(scores)
+        probs = softmax_forward(scores, axis=-1)
         grad_probs = np.matmul(grad_out, np.swapaxes(save_v, -2, -1))
-        row_count = prod(q_shape[:-1])
-        last_dim = q_shape[-2]
-        grad_scores = _softmax_last_axis_backward(grad_probs, probs, row_count, last_dim)
+        grad_scores = softmax_backward(grad_probs, probs, axis=-1)
         grad_scores = grad_scores / scale_f
 
         if Q.requires_grad:

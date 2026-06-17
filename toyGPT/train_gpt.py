@@ -35,7 +35,7 @@ def _build_scheduler(optimizer, cfg: ToyGPTConfig):
     cosine_steps = max(1, cfg.max_steps - cfg.warmup_steps)
     eta_min = cfg.lr * 0.1
     inner = CosineAnnealing(optimizer, T_max=cosine_steps, eta_min=eta_min)
-    return LinearWarmup(inner, warmup_steps=cfg.warmup_steps)
+    return LinearWarmup(inner, warmup_steps=cfg.warmup_steps), eta_min, cosine_steps
 
 
 def _vlog(cfg: ToyGPTConfig, msg: str) -> None:
@@ -135,12 +135,17 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         epsilon=1e-8,
         weight_decay=cfg.weight_decay,
     )
-    scheduler = _build_scheduler(optimizer, cfg)
+    scheduler, eta_min, cosine_steps = _build_scheduler(optimizer, cfg)
     loss_fn = CrossEntropyLoss()
     _vlog(
         cfg,
         f"[model] ready | params_vocab={vocab_size} d_model={cfg.d_model} "
         f"layers={cfg.n_layer} heads={cfg.n_head} seq={cfg.seq_len} batch={cfg.batch_size}",
+    )
+    _vlog(
+        cfg,
+        f"[train] LR schedule: warmup={cfg.warmup_steps} steps, then cosine "
+        f"T_max={cosine_steps} lr={cfg.lr:.2e} -> eta_min={eta_min:.2e}",
     )
 
     step = 0
@@ -227,10 +232,19 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         step_tokens.append(tok_s)
         lr = optimizer.get_lr()[0]
 
+        if step == cfg.warmup_steps:
+            print(
+                f"[train] warmup complete at step {step}; cosine decay active "
+                f"(lr={lr:.2e}, target eta_min={eta_min:.2e} at step {cfg.max_steps})"
+            )
+
+        log_grad = cfg.log_grad_norm and (
+            cfg.log_grad_norm_until_step <= 0 or step <= cfg.log_grad_norm_until_step
+        )
         if step % cfg.log_every == 0 or step == 1:
             avg_ms = sum(step_times) / len(step_times)
             avg_tok_s = sum(step_tokens) / len(step_tokens)
-            grad_msg = f" grad_norm={grad_norm:.3f}" if cfg.log_grad_norm else ""
+            grad_msg = f" grad_norm={grad_norm:.3f}" if log_grad else ""
             print(
                 f"step={step:6d} loss={loss_val:.4f} lr={lr:.2e}{grad_msg} "
                 f"tok/s={tok_s:,.0f} step_ms={step_ms:.1f} "
@@ -245,7 +259,8 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
             print(f"[eval] step={step:6d} val_loss={val_loss:.4f} ppl={ppl:.2f}")
 
             if cfg.verbose:
-                prompt = prompt_ids_from_corpus(train_ids, cfg.seq_len)
+                prompt = prompt_ids_from_corpus(val_ids, cfg.seq_len, rng=rng)
+                sample_rng = host_np.random.default_rng(cfg.seed + step)
                 preview = sample_text(
                     model,
                     tokenizer,
@@ -253,6 +268,8 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
                     seq_len=cfg.seq_len,
                     max_new_tokens=cfg.sample_chars,
                     temperature=cfg.temperature,
+                    rng=sample_rng,
+                    include_prompt=False,
                 )[: cfg.sample_chars].replace("\n", "\\n")
                 print(f"[eval] sample: {preview}")
 

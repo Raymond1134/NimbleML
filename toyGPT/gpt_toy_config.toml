@@ -24,8 +24,8 @@ max_steps = 1270000
 grad_clip = 1.0
 dtype = "float32"
 device = "gpu"
-# ~7.5 min at ~1.8 s/step; saves step_N + copies latest
-checkpoint_every = 250
+# ~15 min at ~1.8 s/step; saves step_N + copies latest
+checkpoint_every = 500
 checkpoint_dir = "checkpoints"
 
 # 0 = disabled; stop after N evals with no val_loss improvement
@@ -58,8 +58,10 @@ temperature = 0.8
 [log]
 verbose = 1
 # log_every syncs the GPU to read the loss; every 20 steps (~36 s) is responsive
-log_every = 25
-log_grad_norm = 0
+log_every = 50
+# 1 = log grad_norm on each log line; set back to 0 once healthy (~step 5000)
+log_grad_norm = 1
+log_grad_norm_until_step = 5000
 bpe_log_every = 5
 rolling_avg = 50
 

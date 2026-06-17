@@ -10,9 +10,22 @@ from NimbleML.utils.tensor import Tensor
 import numpy as _host_np
 
 
-def prompt_ids_from_corpus(corpus, seq_len: int) -> list[int]:
-    """First ``seq_len`` token ids from a host or device corpus array."""
-    slice_arr = corpus[:seq_len]
+def prompt_ids_from_corpus(
+    corpus,
+    seq_len: int,
+    *,
+    rng: _host_np.random.Generator | None = None,
+) -> list[int]:
+    """``seq_len`` token ids from a host or device corpus array.
+
+    When ``rng`` is given, the window starts at a random offset so eval samples
+    are not pinned to the corpus head on every checkpoint.
+    """
+    n = int(corpus.shape[0])
+    if n < seq_len:
+        raise ValueError(f"Corpus length {n} is shorter than seq_len={seq_len}.")
+    start = 0 if rng is None else int(rng.integers(0, n - seq_len + 1))
+    slice_arr = corpus[start : start + seq_len]
     if hasattr(slice_arr, "get"):
         slice_arr = slice_arr.get()
     return [int(x) for x in np.asarray(slice_arr, dtype=np.int64).tolist()]
@@ -27,8 +40,12 @@ def sample_text(
     max_new_tokens: int,
     temperature: float = 0.8,
     top_k: int = 0,
+    rng: _host_np.random.Generator | None = None,
+    include_prompt: bool = True,
 ) -> str:
     """Autoregressively extend ``prompt_ids`` and decode to text."""
+    sample_rng = rng if rng is not None else _host_np.random.default_rng()
+    prompt_len = len(prompt_ids)
     ids = list(prompt_ids)
     for _ in range(max_new_tokens):
         window = ids[-seq_len:]
@@ -64,6 +81,7 @@ def sample_text(
                 last_host = last.get() if hasattr(last, "get") else last
                 next_id = int(_host_np.argmax(_host_np.asarray(last_host)))
             else:
-                next_id = int(_host_np.random.choice(len(probs_host), p=probs_host / total))
+                next_id = int(sample_rng.choice(len(probs_host), p=probs_host / total))
         ids.append(next_id)
-    return tokenizer.decode(ids)
+    decode_ids = ids if include_prompt else ids[prompt_len:]
+    return tokenizer.decode(decode_ids)

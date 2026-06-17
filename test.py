@@ -89,6 +89,33 @@ def test_softmax_normalization_and_grad():
     assert logits.grad is not None
 
 
+def test_softmax_arbitrary_axis():
+    rng = np.random.default_rng(0)
+    data = rng.standard_normal(12).astype(np.float64)
+    for axis in (0, 1, -1):
+        logits = Tensor(data.copy().ravel(), (2, 2, 3), requires_grad=True)
+        probs = Softmax(axis=axis)(logits)
+        arr = np.asarray(probs.data).reshape(2, 2, 3)
+        assert np.allclose(arr.sum(axis=axis), 1.0, atol=1e-6)
+        logits.grad = None
+        probs.sum().backward()
+        assert logits.grad is not None
+
+
+def test_softmax_gradcheck_axes():
+    from NimbleML.utils.gradcheck import gradcheck
+
+    rng = np.random.default_rng(1)
+    for axis in (0, 1, -1):
+        logits = Tensor(
+            rng.standard_normal(12).astype(np.float64),
+            (2, 2, 3),
+            requires_grad=True,
+        )
+        sm = Softmax(axis=axis)
+        gradcheck(lambda: sm(logits).sum(), [logits], eps=1e-4, tol=5e-3)
+
+
 def test_attention_shape_with_causal_mask():
     batch, seq_len, d_k = 2, 4, 8
     rng = np.random.default_rng(0)
@@ -325,6 +352,8 @@ def main():
     test_maxpool2d_backward_mask()
     test_embedding_backward_accumulates()
     test_softmax_normalization_and_grad()
+    test_softmax_arbitrary_axis()
+    test_softmax_gradcheck_axes()
     test_attention_shape_with_causal_mask()
     test_multi_head_attention_forward_backward()
     test_rms_norm_forward_shape()

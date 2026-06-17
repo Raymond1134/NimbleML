@@ -1,10 +1,24 @@
-"""GELU activation (Gaussian Error Linear Unit)."""
+"""Gaussian Error Linear Unit (GELU) activation."""
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 
 
 def gelu_forward(arr):
-    """GELU forward (tanh approximation). Returns (output, tanh_u) for backward."""
+    """Computes the GELU activation using the tanh approximation.
+
+    Args:
+        arr (np.ndarray): Input array.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]:
+            A tuple containing:
+            - out: GELU output.
+            - tanh_u: Cached tanh(u) values used for backward computation.
+
+    Examples:
+        >>> arr = np.array([1.0, 2.0, 3.0])
+        >>> out, tanh_u = gelu_forward(arr)
+    """
     k = np.sqrt(2.0 / np.pi)
     x3 = arr * arr * arr
     u = k * (arr + 0.044715 * x3)
@@ -14,11 +28,21 @@ def gelu_forward(arr):
 
 
 def gelu_backward(grad_out, arr, tanh_u=None):
-    """GELU backward given pre-activation ``arr``.
+    """Computes the backward pass of the GELU activation.
 
-    ``tanh_u`` may be ``None`` to recompute it from ``arr`` (saves keeping a
-    full-size activation alive across the backward pass; the recompute is a
-    cheap elementwise tanh).
+    Args:
+        grad_out (np.ndarray): Gradient of the output.
+        arr (np.ndarray): Input array.
+        tanh_u (np.ndarray): Cached tanh(u) values used for backward computation.
+
+    Returns:
+        np.ndarray: Gradient of the input.
+
+    Examples:
+        >>> grad_out = np.array([1.0, 2.0, 3.0])
+        >>> arr = np.array([1.0, 2.0, 3.0])
+        >>> tanh_u = np.array([0.76159416, 0.86588770, 0.95533649])
+        >>> grad_in = gelu_backward(grad_out, arr, tanh_u)
     """
     k = np.sqrt(2.0 / np.pi)
     if tanh_u is None:
@@ -29,8 +53,20 @@ def gelu_backward(grad_out, arr, tanh_u=None):
 
 
 class Gelu(Module):
-    """Apply GELU element-wise via ``inputs.gelu()``."""
+    """Gaussian Error Linear Unit (GELU) activation module.
+
+    Applies the GELU activation function element-wise to the input tensor.
+    The GELU activation is defined as: GELU(x) = x * Φ(x), where Φ(x) is
+    the cumulative distribution function of the standard normal distribution.
+    """
 
     def forward(self, inputs):
-        """Public function forward."""
+        """Applies the GELU activation function.
+
+        Args:
+            inputs (Tensor): Input tensor.
+
+        Returns:
+            Tensor: Output tensor with GELU applied element-wise.
+        """
         return inputs.gelu()
