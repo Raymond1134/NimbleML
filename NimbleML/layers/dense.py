@@ -80,7 +80,6 @@ class Dense(Module):
         def _backward():
             if out.grad is None:
                 return
-
             grad_out = _grad_out(out, (row_count, out_features))
             w_arr = Tensor._asarray(weights.data).reshape(in_features, out_features)
             w_T = np.ascontiguousarray(np.swapaxes(w_arr, -2, -1))
