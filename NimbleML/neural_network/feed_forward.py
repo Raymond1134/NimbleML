@@ -5,7 +5,7 @@ from NimbleML.activations.gelu import gelu_backward, gelu_forward
 from NimbleML.layers import Dense
 from NimbleML.neural_network.module import Module
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor, _save_for_backward
+from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 
 
 def fused_feed_forward(x, weights1, bias1, weights2, bias2):
@@ -42,13 +42,15 @@ def fused_feed_forward(x, weights1, bias1, weights2, bias2):
     pre_act = np.matmul(x_arr, w1)
     if b1 is not None:
         pre_act = pre_act + b1
-    hidden, _tanh_u = gelu_forward(pre_act)
+    hidden, tanh_u = gelu_forward(pre_act)
     out2d = np.matmul(hidden, w2)
     if b2 is not None:
         out2d = out2d + b2
 
     save_x = _save_for_backward(x_arr)
     save_pre = _save_for_backward(pre_act)
+    save_tanh_u = _save_for_backward(tanh_u)
+    save_hidden = _save_for_backward(hidden)
 
     out_shape = in_shape[:-1] + (d_out,)
     out_arr = out2d.reshape(out_shape)
@@ -70,28 +72,28 @@ def fused_feed_forward(x, weights1, bias1, weights2, bias2):
         if out.grad is None:
             return
 
-        grad_out = Tensor._asarray(out.grad).reshape(row_count, d_out)
-
+        grad_out = _grad_out(out, (row_count, d_out))
         w1 = Tensor._asarray(weights1.data).reshape(d_in, d_hidden)
         w2 = Tensor._asarray(weights2.data).reshape(d_hidden, d_out)
+        w2_T = np.ascontiguousarray(np.swapaxes(w2, -2, -1))
+        w1_T = np.ascontiguousarray(np.swapaxes(w1, -2, -1))
 
         if weights2.requires_grad:
-            hidden, _ = gelu_forward(save_pre)
-            grad_w2 = np.matmul(hidden.T, grad_out)
+            grad_w2 = np.matmul(np.ascontiguousarray(np.swapaxes(save_hidden, -2, -1)), grad_out)
             weights2._accumulate_grad(grad_w2.ravel())
         if bias2 is not None and bias2.requires_grad:
             bias2._accumulate_grad(np.sum(grad_out, axis=0).ravel())
 
-        grad_hidden = np.matmul(grad_out, w2.T)
-        grad_pre_act = gelu_backward(grad_hidden, save_pre)
+        grad_hidden = np.matmul(grad_out, w2_T)
+        grad_pre_act = gelu_backward(grad_hidden, save_pre, save_tanh_u)
 
         if weights1.requires_grad:
-            grad_w1 = np.matmul(save_x.T, grad_pre_act)
+            grad_w1 = np.matmul(np.ascontiguousarray(np.swapaxes(save_x, -2, -1)), grad_pre_act)
             weights1._accumulate_grad(grad_w1.ravel())
         if bias1 is not None and bias1.requires_grad:
             bias1._accumulate_grad(np.sum(grad_pre_act, axis=0).ravel())
         if x.requires_grad:
-            grad_x = np.matmul(grad_pre_act, w1.T)
+            grad_x = np.matmul(grad_pre_act, w1_T)
             x._accumulate_grad(grad_x.reshape(in_shape).ravel())
 
     out._backward = _backward

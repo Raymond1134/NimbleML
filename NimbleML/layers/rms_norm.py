@@ -3,7 +3,7 @@ from math import prod
 
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor, _save_for_backward
+from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 
 
 def fused_rms_norm(x, gamma, epsilon=1e-5):
@@ -22,6 +22,9 @@ def fused_rms_norm(x, gamma, epsilon=1e-5):
     out_arr = ((x_arr / rms) * g_arr).reshape(in_shape)
 
     save_x = _save_for_backward(x_arr)
+    save_ms = _save_for_backward(ms)
+    save_rms = _save_for_backward(rms)
+    save_g = _save_for_backward(g_arr)
 
     requires_grad = x.requires_grad or gamma.requires_grad
     out = Tensor(
@@ -36,23 +39,21 @@ def fused_rms_norm(x, gamma, epsilon=1e-5):
         if out.grad is None:
             return
 
-        grad_out = Tensor._asarray(out.grad).reshape(row_count, d)
-        ms = np.mean(save_x * save_x, axis=-1, keepdims=True)
-        rms_b = np.sqrt(ms + epsilon)
+        grad_out = _grad_out(out, (row_count, d))
         if gamma.requires_grad:
-            x_hat = save_x / rms_b
+            x_hat = save_x / save_rms
             grad_gamma = np.sum(grad_out * x_hat, axis=0)
             gamma._accumulate_grad(grad_gamma.ravel())
 
         if x.requires_grad:
-            grad_x_hat = grad_out * g_arr
+            grad_x_hat = grad_out * save_g
             grad_ms = np.sum(
-                grad_x_hat * save_x * (-0.5) * (ms + epsilon) ** (-1.5),
+                grad_x_hat * save_x * (-0.5) * (save_ms + epsilon) ** (-1.5),
                 axis=-1,
                 keepdims=True,
             )
             grad_x_from_ms = (2.0 / d) * save_x * grad_ms
-            grad_x_direct = grad_x_hat / rms_b
+            grad_x_direct = grad_x_hat / save_rms
             grad_x = grad_x_direct + grad_x_from_ms
             x._accumulate_grad(grad_x.reshape(in_shape).ravel())
 

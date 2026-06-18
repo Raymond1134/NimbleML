@@ -17,6 +17,16 @@ def _save_for_backward(arr):
     return np.asarray(arr).copy()
 
 
+def _grad_out(tensor, shape=None):
+    """Copy upstream gradient at backward time (safe on CUDA memory pool)."""
+    if tensor.grad is None:
+        return None
+    g = Tensor._asarray(tensor.grad)
+    if shape is not None:
+        g = g.reshape(shape)
+    return _save_for_backward(g)
+
+
 def _is_stable_matmul_operand(tensor):
     """Parameter tensors (and their transpose) stay valid through backward."""
     if tensor._op == "":
@@ -172,7 +182,7 @@ class Tensor:
         if self.grad is None:
             self.grad = grad.copy()
         else:
-            self.grad += grad
+            self.grad = self.grad + grad
 
     def _ensure_tensor(self, other):
         if isinstance(other, Tensor):
@@ -233,7 +243,7 @@ class Tensor:
         exponent = float(exponent)
 
         shape = self.shape
-        a = Tensor._asarray(self.data).reshape(shape)
+        a = _save_for_backward(Tensor._asarray(self.data).reshape(shape) if shape else Tensor._asarray(self.data))
         out_data = np.power(a, exponent)
 
         out = Tensor(
@@ -247,7 +257,7 @@ class Tensor:
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            grad_out = out.grad.reshape(shape)
+            grad_out = _grad_out(out, shape)
             grad_a = grad_out * exponent * np.power(a, exponent - 1.0)
             self._accumulate_grad(grad_a.ravel())
 
@@ -282,7 +292,7 @@ class Tensor:
         def _backward():
             if out.grad is None:
                 return
-            grad_out = out.grad.reshape(out_shape)
+            grad_out = _grad_out(out, out_shape)
             grad_a = grad_a_rule(grad_out, save_a, save_b)
             grad_b = grad_b_rule(grad_out, save_a, save_b)
             if a.requires_grad:
@@ -349,8 +359,8 @@ class Tensor:
         if self.ndim < 1 or other.ndim < 1:
             raise ValueError("Matrix multiplication requires tensors with at least one dimension.")
 
-        left = Tensor._asarray(self.data).reshape(left_shape)
-        right = Tensor._asarray(other.data).reshape(right_shape)
+        left = np.ascontiguousarray(Tensor._asarray(self.data).reshape(left_shape))
+        right = np.ascontiguousarray(Tensor._asarray(other.data).reshape(right_shape))
 
         save_left = _save_for_backward(left) if other.requires_grad else None
         save_right = (
@@ -377,7 +387,7 @@ class Tensor:
             if out.grad is None:
                 return
 
-            grad_out = Tensor._asarray(out.grad).reshape(out_shape)
+            grad_out = _grad_out(out, out_shape)
             left_arr = save_left.reshape(left_shape) if save_left is not None else None
 
             if self.requires_grad:
@@ -385,7 +395,7 @@ class Tensor:
                 if right_arr.ndim == 1:
                     grad_left = np.matmul(grad_out, right_arr)
                 else:
-                    right_T = np.swapaxes(right_arr, -2, -1)
+                    right_T = np.ascontiguousarray(np.swapaxes(right_arr, -2, -1))
                     grad_left = np.matmul(grad_out, right_T)
                 self._accumulate_grad(grad_left.ravel())
 
@@ -398,7 +408,7 @@ class Tensor:
                     contract_axes = (list(range(left_arr.ndim - 1)), list(range(grad_out.ndim - 1)))
                     grad_right = np.tensordot(left_arr, grad_out, axes=contract_axes)
                 else:
-                    left_T = np.swapaxes(left_arr, -2, -1)
+                    left_T = np.ascontiguousarray(np.swapaxes(left_arr, -2, -1))
                     grad_right = np.matmul(left_T, grad_out)
                 other._accumulate_grad(grad_right.ravel())
 
@@ -407,7 +417,7 @@ class Tensor:
 
     def relu(self):
         """Public function relu."""
-        arr = self.data
+        arr = _save_for_backward(Tensor._asarray(self.data))
         out_data = np.maximum(arr, 0.0)
         out = Tensor(out_data, self.shape, requires_grad=self.requires_grad, _children=(self,), _op="relu")
         mask = (arr > 0).astype(np_backend.dtype)
@@ -415,7 +425,8 @@ class Tensor:
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            self._accumulate_grad(out.grad * mask)
+            grad_out = _grad_out(out, self.shape)
+            self._accumulate_grad(grad_out * mask)
 
         out._backward = _backward
         return out
@@ -424,8 +435,9 @@ class Tensor:
         """GELU activation (tanh approximation, GPU-safe)."""
         from NimbleML.activations.gelu import gelu_backward, gelu_forward
 
-        arr = Tensor._asarray(self.data).reshape(self.shape) if self.shape else Tensor._asarray(self.data)
-        out_data, tanh_u = gelu_forward(arr)
+        save_pre = _save_for_backward(arr)
+        out_data, tanh_u = gelu_forward(save_pre)
+        save_tanh_u = _save_for_backward(tanh_u)
         out = Tensor(
             out_data.ravel(),
             self.shape,
@@ -437,8 +449,8 @@ class Tensor:
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            grad_out = Tensor._asarray(out.grad).reshape(arr.shape)
-            grad = gelu_backward(grad_out, arr, tanh_u)
+            grad_out = _grad_out(out, save_pre.shape)
+            grad = gelu_backward(grad_out, save_pre, save_tanh_u)
             self._accumulate_grad(grad.ravel())
 
         out._backward = _backward
@@ -467,9 +479,9 @@ class Tensor:
             if out.grad is None or not self.requires_grad:
                 return
             if self.ndim == 0:
-                self._accumulate_grad(out.grad.reshape(1))
+                self._accumulate_grad(_grad_out(out, (1,)))
                 return
-            grad_out = out.grad.reshape(out_shape)
+            grad_out = _grad_out(out, out_shape)
             grad_in = np.broadcast_to(grad_out, self.shape).ravel()
             self._accumulate_grad(grad_in)
 
@@ -496,7 +508,8 @@ class Tensor:
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            self._accumulate_grad(out.grad)
+            grad_out = _grad_out(out, new_shape)
+            self._accumulate_grad(grad_out)
 
         out._backward = _backward
         return out
@@ -515,8 +528,8 @@ class Tensor:
         def _backward():
             if out.grad is None or not self.requires_grad:
                 return
-            grad_out = out.grad.reshape(cols, rows)
-            self._accumulate_grad(grad_out.T.ravel())
+            grad_out = _grad_out(out, (cols, rows))
+            self._accumulate_grad(np.ascontiguousarray(np.swapaxes(grad_out, -2, -1)).ravel())
 
         out._backward = _backward
         return out

@@ -218,7 +218,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 todo.txt
-
-toyGPT/data/cache/
-toyGPT/checkpoints/
-toyGPT/data/tokenizer.json
+toyGPT/

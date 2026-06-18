@@ -4,7 +4,7 @@ import numpy as host_np
 from NimbleML.neural_network import Module
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import as_int64, np, using_gpu
-from NimbleML.utils.tensor import Tensor, _save_for_backward
+from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 
 
 def _ensure_weight_grad(weights, vocab_size, embed_dim):
@@ -120,7 +120,9 @@ class Embedding(Module):
         def _backward():
             if output.grad is None or not self.weights.requires_grad:
                 return
-            grad_flat = Tensor._asarray(output.grad).reshape(seq_len, self.embed_dim)
+            grad_flat = _save_for_backward(
+                Tensor._asarray(output.grad).reshape(seq_len, self.embed_dim)
+            )
             _accumulate_prefix_grad(
                 self.weights, seq_len, grad_flat, self.vocab_size, self.embed_dim
             )

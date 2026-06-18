@@ -65,6 +65,15 @@ def _eval_loss(model, loss_fn, val_ids, cfg: ToyGPTConfig, rng) -> float:
     return total / cfg.eval_batches
 
 
+def _cleanup_gpu(using_gpu: bool) -> None:
+    gc.collect()
+    if using_gpu:
+        import cupy
+
+        cupy.get_default_memory_pool().free_all_blocks()
+        cupy.cuda.Device().synchronize()
+
+
 def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
     _configure_backend(cfg)
     seed_everything(cfg.seed)
@@ -170,6 +179,7 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
     tokens_per_step = cfg.batch_size * cfg.seq_len
     step_times: deque[float] = deque(maxlen=cfg.rolling_avg)
     step_tokens: deque[float] = deque(maxlen=cfg.rolling_avg)
+    unstable_steps = 0
 
     print(
         f"[train] start | max_steps={cfg.max_steps} tokens/step={tokens_per_step} "
@@ -185,17 +195,38 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         )
         logits = model.forward(inputs)
         loss = loss_fn(logits, targets)
-        loss.backward()
+        try:
+            loss.backward()
+        except Exception as exc:
+            print(f"[train] backward failed at step {step + 1}: {exc}")
+            optimizer.zero_grad(set_to_none=True)
+            model.clear_pos_encoding_cache()
+            _cleanup_gpu(using_gpu)
+            unstable_steps += 1
+            if unstable_steps >= 3:
+                print(
+                    "[train] aborting: CUDA context likely poisoned. "
+                    "Close this terminal, open a fresh one, and resume from your last good checkpoint."
+                )
+                raise
+            step += 1
+            continue
+
         loss_val = float(loss.data[0])
         del logits, loss, inputs, targets
 
         if not math.isfinite(loss_val):
             print(f"[train] warning: non-finite loss={loss_val} at step {step + 1}, skipping update")
-            gc.collect()
-            if using_gpu:
-                import cupy
-
-                cupy.cuda.Device().synchronize()
+            optimizer.zero_grad(set_to_none=True)
+            model.clear_pos_encoding_cache()
+            _cleanup_gpu(using_gpu)
+            unstable_steps += 1
+            if unstable_steps >= 5:
+                print(
+                    "[train] aborting after repeated non-finite loss. "
+                    "Resume from an earlier checkpoint (weights may be corrupted)."
+                )
+                raise RuntimeError("training unstable: non-finite loss")
             step += 1
             continue
 
@@ -203,21 +234,22 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         if not math.isfinite(grad_norm):
             print(f"[train] warning: non-finite grad_norm at step {step + 1}, skipping update")
             optimizer.zero_grad(set_to_none=True)
-            gc.collect()
-            if using_gpu:
-                import cupy
-
-                cupy.cuda.Device().synchronize()
+            model.clear_pos_encoding_cache()
+            _cleanup_gpu(using_gpu)
+            unstable_steps += 1
+            if unstable_steps >= 5:
+                print(
+                    "[train] aborting after repeated non-finite gradients. "
+                    "Resume from an earlier checkpoint (e.g. step_10000 or best)."
+                )
+                raise RuntimeError("training unstable: non-finite grad_norm")
             step += 1
             continue
 
+        unstable_steps = 0
         model.clear_pos_encoding_cache()
         optimizer.step()
         scheduler.step()
-        # Autograd nodes form reference cycles (each op's backward closure
-        # captures its own output), so a graph is not freed by refcounting
-        # alone. Collect it now; otherwise graphs pile up and GPU memory climbs
-        # until the pool overflows VRAM and Windows pages it (~10x slower).
         gc.collect()
         if using_gpu:
             import cupy

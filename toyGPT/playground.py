@@ -35,7 +35,7 @@ Anything else is sent to {ASSISTANT_NAME} as your message.
 @dataclass
 class PlaySettings:
     temperature: float = 0.8
-    top_k: int = 0
+    top_k: int = 40
     max_new_tokens: int = 200
     checkpoint: str = "best"
 
@@ -139,11 +139,13 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = ToyGPTConfig.from_toml(args.config.resolve())
     settings = PlaySettings(
-        temperature=cfg.temperature if args.temperature < 0 else args.temperature,
-        top_k=0 if args.top_k < 0 else args.top_k,
         max_new_tokens=args.gen_len if args.gen_len > 0 else cfg.sample_chars,
         checkpoint=args.checkpoint,
     )
+    if args.temperature >= 0:
+        settings.temperature = args.temperature
+    if args.top_k >= 0:
+        settings.top_k = args.top_k
 
     model, tokenizer, state, ckpt_dir = load_for_inference(cfg, settings.checkpoint)
     session = ChatSession()

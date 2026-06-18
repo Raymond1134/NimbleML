@@ -29,24 +29,28 @@ def gelu_forward(arr):
 
 def gelu_backward(grad_out, arr, tanh_u=None):
     """Computes the backward pass of the GELU activation.
-
+    
     Args:
         grad_out (np.ndarray): Gradient of the output.
         arr (np.ndarray): Input array.
-        tanh_u (np.ndarray): Cached tanh(u) values used for backward computation.
+        tanh_u (np.ndarray, optional): Cached tanh(u) values used for backward computation.
 
     Returns:
         np.ndarray: Gradient of the input.
-
+    
     Examples:
         >>> grad_out = np.array([1.0, 2.0, 3.0])
         >>> arr = np.array([1.0, 2.0, 3.0])
-        >>> tanh_u = np.array([0.76159416, 0.86588770, 0.95533649])
+        >>> tanh_u = np.array([1.0, 2.0, 3.0])
         >>> grad_in = gelu_backward(grad_out, arr, tanh_u)
     """
+    grad_out = np.ascontiguousarray(grad_out)
+    arr = np.ascontiguousarray(arr)
     k = np.sqrt(2.0 / np.pi)
     if tanh_u is None:
         tanh_u = np.tanh(k * (arr + 0.044715 * arr * arr * arr))
+    else:
+        tanh_u = np.ascontiguousarray(tanh_u)
     du_dx = k * (1.0 + 0.134145 * arr * arr)
     sech2 = 1.0 - tanh_u * tanh_u
     return grad_out * (0.5 * (1.0 + tanh_u) + 0.5 * arr * sech2 * du_dx)

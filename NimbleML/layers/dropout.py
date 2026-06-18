@@ -1,7 +1,7 @@
 """Dropout regularization layer"""
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor
+from NimbleML.utils.tensor import Tensor, _grad_out
 
 
 class Dropout(Module):
@@ -32,7 +32,8 @@ class Dropout(Module):
         def _backward():
             if out.grad is None or not inputs.requires_grad:
                 return
-            inputs._accumulate_grad(out.grad * mask)
+            grad_out = _grad_out(out, inputs.shape)
+            inputs._accumulate_grad(grad_out * mask)
 
         out._backward = _backward
         return out

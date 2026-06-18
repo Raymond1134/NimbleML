@@ -66,12 +66,12 @@ class Softmax(Module):
 
         Args:
             inputs: Logits tensor with ``ndim >= 1``.
-        
-        Raises:
-            ValueError: If inputs has less than 1 dimension.
 
         Returns:
             Tensor of probabilities with the same shape as ``inputs``.
+
+        Raises:
+            ValueError: If inputs has less than 1 dimension.
         """
         if inputs.ndim < 1:
             raise ValueError("Softmax expects at least a 1D tensor.")

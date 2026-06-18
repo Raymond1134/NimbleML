@@ -1,5 +1,3 @@
-"""Package exports and public API surface."""
-
 from .conv2d import Conv2D
 from .dense import Dense
 from .dropout import Dropout

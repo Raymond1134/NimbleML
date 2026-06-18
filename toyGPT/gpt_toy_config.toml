@@ -13,14 +13,14 @@ ff_mult = 4
 # batch_size 8 fits in 8 GB VRAM with headroom (~4.6 G steady) and is near the
 # throughput peak. Larger batches overflow VRAM and Windows pages GPU memory to
 # system RAM (~10x slower per step). 6 is marginally faster; 12 is the max fit.
-batch_size = 8
+batch_size = 6
 lr = 3.0e-4
 weight_decay = 0.1
 warmup_steps = 1000
 # Plan A: 65M params overtrained ~2x past Chinchilla (40 tok/param) for a stronger
 # small model. 2.6B tokens / (batch_size*seq_len = 2048 tok/step) ~= 1.27M steps
 # (~1 pass over the 2.6B-token corpus). ~26 days at ~1.75 s/step on an RTX 3070.
-max_steps = 1270000
+max_steps = 1692708
 grad_clip = 1.0
 dtype = "float32"
 device = "gpu"
@@ -58,10 +58,10 @@ temperature = 0.8
 [log]
 verbose = 1
 # log_every syncs the GPU to read the loss; every 20 steps (~36 s) is responsive
-log_every = 50
+log_every = 5
 # 1 = log grad_norm on each log line; set back to 0 once healthy (~step 5000)
 log_grad_norm = 1
-log_grad_norm_until_step = 5000
+log_grad_norm_until_step = 50000
 bpe_log_every = 5
 rolling_avg = 50
 

@@ -1,9 +1,54 @@
 """Minimal GPT-style language model."""
+from math import prod
+
 from NimbleML.layers import Embedding, RMSNorm
 from NimbleML.neural_network.module import Module, Sequential
 from NimbleML.neural_network.transformer import TransformerBlock
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor
+from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
+
+
+def tied_lm_head(x, embedding_weights):
+    """Logits = x @ W.T with a single autograd node (no transpose tensor)."""
+    in_shape = x.shape
+    vocab_size, d_model = embedding_weights.shape
+    if in_shape[-1] != d_model:
+        raise ValueError(
+            f"d_model mismatch: activations {in_shape[-1]}, weights {embedding_weights.shape[1]}"
+        )
+
+    row_count = prod(in_shape[:-1]) if len(in_shape) > 1 else 1
+    x_arr = Tensor._asarray(x.data).reshape(row_count, d_model)
+    w_arr = Tensor._asarray(embedding_weights.data).reshape(vocab_size, d_model)
+    w_T = np.ascontiguousarray(np.swapaxes(w_arr, -2, -1))
+    out2d = np.matmul(x_arr, w_T)
+
+    save_x = _save_for_backward(x_arr) if embedding_weights.requires_grad else None
+    save_w = _save_for_backward(w_arr) if x.requires_grad else None
+
+    out_shape = in_shape[:-1] + (vocab_size,)
+    out = Tensor(
+        out2d.ravel(),
+        out_shape,
+        requires_grad=x.requires_grad or embedding_weights.requires_grad,
+        _children=(x, embedding_weights),
+        _op="tied_lm_head",
+    )
+
+    def _backward():
+        if out.grad is None:
+            return
+
+        grad_out = _grad_out(out, (row_count, vocab_size))
+        if embedding_weights.requires_grad:
+            grad_w = np.matmul(np.ascontiguousarray(np.swapaxes(grad_out, -2, -1)), save_x)
+            embedding_weights._accumulate_grad(grad_w.ravel())
+        if x.requires_grad:
+            grad_x = np.matmul(grad_out, save_w)
+            x._accumulate_grad(grad_x.reshape(in_shape).ravel())
+
+    out._backward = _backward
+    return out
 
 
 class GPT(Module):
@@ -53,7 +98,7 @@ class GPT(Module):
         x = self.token_emb(input_ids) + pos
         x = self.blocks(x)
         x = self.ln(x)
-        return x.matmul(self.token_emb.weights.T)
+        return tied_lm_head(x, self.token_emb.weights)
 
     def parameters(self):
         """Return learnable parameters (token embedding weights appear once)."""

@@ -1,8 +1,10 @@
 """Cross-entropy loss (1D, 2D, or 3D sequence logits)"""
+import numpy as host_np
+
 from NimbleML.activations.softmax import softmax_forward
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor
+from NimbleML.utils.tensor import Tensor, _save_for_backward
 
 
 def _softmax_rows(logits_arr):
@@ -22,7 +24,7 @@ def _log_softmax_cross_entropy(logits_arr, label_indices):
 def _cross_entropy_logits_grad(logits_arr, label_indices, flat_batch):
     """Gradient w.r.t. logits: (softmax - one_hot) / batch_size."""
     probs = _softmax_rows(logits_arr)
-    grad = probs
+    grad = probs.copy()
     grad[np.arange(flat_batch), label_indices] -= 1.0
     grad /= flat_batch
     return grad
@@ -67,16 +69,24 @@ class CrossEntropyLoss:
             raise ValueError("CrossEntropyLoss expects 1D, 2D, or 3D logits.")
 
         label_indices = self._flatten_labels(labels, total_batch)
+        label_indices_host = host_np.asarray(
+            label_indices.get() if hasattr(label_indices, "get") else label_indices,
+            dtype=host_np.int64,
+        ).copy()
+
         valid = np.ones(total_batch, dtype=bool)
         if ignore_index is not None:
-            valid = label_indices != ignore_index
+            valid = label_indices_host != ignore_index
             if not np.any(valid):
                 return Tensor([0.0], (), requires_grad=logits.requires_grad)
             logits_arr = logits_arr[valid]
-            label_indices = label_indices[valid]
+            label_indices_host = label_indices_host[valid]
 
-        flat_batch = int(label_indices.size)
-        loss = _log_softmax_cross_entropy(logits_arr, label_indices)
+        flat_batch = int(label_indices_host.size)
+        loss = _log_softmax_cross_entropy(logits_arr, label_indices_host)
+        saved_logits = _save_for_backward(
+            Tensor._asarray(logits.data).reshape(total_batch, class_count)
+        )
 
         output = Tensor(
             [loss],
@@ -86,23 +96,25 @@ class CrossEntropyLoss:
             _op="cross_entropy",
         )
 
+        valid_mask = valid
+
         def _backward():
             if output.grad is None or not logits.requires_grad:
                 return
 
-            grad_scale = float(output.grad.reshape(-1)[0])
-            full_logits = Tensor._asarray(logits.data).reshape(total_batch, class_count)
+            grad_scale = float(Tensor._asarray(output.grad).reshape(-1)[0])
+            full_logits = saved_logits
             if ignore_index is not None:
-                active_logits = full_logits[valid]
+                active_logits = full_logits[valid_mask]
             else:
                 active_logits = full_logits
 
-            grad = _cross_entropy_logits_grad(active_logits, label_indices, flat_batch)
+            grad = _cross_entropy_logits_grad(active_logits, label_indices_host, flat_batch)
             grad *= grad_scale
 
             if ignore_index is not None:
                 full_grad = np.zeros((total_batch, class_count), dtype=np_backend.dtype)
-                full_grad[valid] = grad
+                full_grad[valid_mask] = grad
             else:
                 full_grad = grad
 

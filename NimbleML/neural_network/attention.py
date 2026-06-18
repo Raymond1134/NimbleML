@@ -5,7 +5,7 @@ from NimbleML.layers import Dense
 from NimbleML.neural_network import Module
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
-from NimbleML.utils.tensor import Tensor, _save_for_backward
+from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 
 
 @lru_cache(maxsize=None)
@@ -56,7 +56,7 @@ def _split_heads(tensor, batch, seq_len, num_heads, d_k):
     def _backward():
         if out.grad is None or not tensor.requires_grad:
             return
-        grad_out = out.grad.reshape(batch, num_heads, seq_len, d_k)
+        grad_out = _grad_out(out, (batch, num_heads, seq_len, d_k))
         grad_in = np.transpose(grad_out, (0, 2, 1, 3))
         tensor._accumulate_grad(grad_in.ravel())
 
@@ -85,7 +85,7 @@ def _merge_heads(tensor, batch, seq_len, num_heads, d_k):
     def _backward():
         if out.grad is None or not tensor.requires_grad:
             return
-        grad_out = out.grad.reshape(batch, seq_len, num_heads, d_k)
+        grad_out = _grad_out(out, (batch, seq_len, num_heads, d_k))
         grad_in = np.transpose(grad_out, (0, 2, 1, 3))
         tensor._accumulate_grad(grad_in.ravel())
 
@@ -124,6 +124,7 @@ def scaled_dot_product_attention(Q, K, V, scale, mask=None):
     save_q = _save_for_backward(q_arr)
     save_k = _save_for_backward(k_arr)
     save_v = _save_for_backward(v_arr)
+    save_probs = _save_for_backward(probs)
 
     requires_grad = Q.requires_grad or K.requires_grad or V.requires_grad
     out = Tensor(
@@ -138,24 +139,20 @@ def scaled_dot_product_attention(Q, K, V, scale, mask=None):
         if out.grad is None:
             return
 
-        grad_out = Tensor._asarray(out.grad).reshape(out_arr.shape)
+        grad_out = _grad_out(out, out_arr.shape)
         scale_f = float(scale)
-        scores = np.matmul(save_q, np.swapaxes(save_k, -2, -1)) / scale_f
-        if mask_arr is not None:
-            scores = scores + mask_arr
-        probs = softmax_forward(scores, axis=-1)
-        grad_probs = np.matmul(grad_out, np.swapaxes(save_v, -2, -1))
-        grad_scores = softmax_backward(grad_probs, probs, axis=-1)
+        grad_probs = np.matmul(grad_out, np.ascontiguousarray(np.swapaxes(save_v, -2, -1)))
+        grad_scores = softmax_backward(grad_probs, save_probs, axis=-1)
         grad_scores = grad_scores / scale_f
 
         if Q.requires_grad:
             grad_q = np.matmul(grad_scores, save_k)
             Q._accumulate_grad(grad_q.ravel())
         if K.requires_grad:
-            grad_k = np.matmul(np.swapaxes(grad_scores, -2, -1), save_q)
+            grad_k = np.matmul(np.ascontiguousarray(np.swapaxes(grad_scores, -2, -1)), save_q)
             K._accumulate_grad(grad_k.ravel())
         if V.requires_grad:
-            grad_v = np.matmul(np.swapaxes(probs, -2, -1), grad_out)
+            grad_v = np.matmul(np.ascontiguousarray(np.swapaxes(save_probs, -2, -1)), grad_out)
             V._accumulate_grad(grad_v.ravel())
 
     out._backward = _backward
