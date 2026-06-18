@@ -39,7 +39,7 @@ class Dense(Module):
         
         Examples:
             >>> layer = Dense(in_features=10, out_features=20)
-            >>> inputs = Tensor(np.random.randn(10, 10))
+            >>> inputs = Tensor(np.random.randn(10, 10), (10, 10))
             >>> output = layer.forward(inputs)
         """
         if inputs.shape[-1] != self.in_features:

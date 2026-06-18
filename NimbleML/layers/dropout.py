@@ -5,7 +5,12 @@ from NimbleML.utils.tensor import Tensor, _grad_out
 
 
 class Dropout(Module):
-    """Public class Dropout."""
+    """Dropout regularization layer.
+
+    During training, randomly sets input elements to zero with probability ``probability``
+    and scales the remaining activations by ``1 / (1 - probability)``. During evaluation,
+    inputs are returned unchanged.
+    """
     def __init__(self, probability=0.5):
         if not 0 <= probability < 1:
             raise ValueError("Dropout probability must be in [0, 1).")
@@ -13,7 +18,19 @@ class Dropout(Module):
         self.training = True
 
     def forward(self, inputs):
-        """Public function forward."""
+        """Applies dropout to the input tensor.
+
+        Args:
+            inputs (Tensor): Input tensor.
+
+        Returns:
+            Tensor: Output tensor with dropout applied.
+        
+        Examples:
+            >>> layer = Dropout(0.5)
+            >>> inputs = Tensor(np.random.randn(5, 5), (5, 5))
+            >>> output = layer.forward(inputs)
+        """
         if not self.training or self.probability == 0:
             return inputs
 
@@ -39,9 +56,15 @@ class Dropout(Module):
         return out
 
     def train(self):
-        """Public function train."""
+        """Sets the layer to training mode.
+
+        In training mode, dropout masks are sampled and applied during forward passes.
+        """
         self.training = True
 
     def eval(self):
-        """Public function eval."""
+        """Sets the layer to evaluation mode.
+
+        In evaluation mode, dropout is disabled and inputs are returned unchanged.
+        """
         self.training = False
