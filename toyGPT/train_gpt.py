@@ -33,7 +33,7 @@ def _build_scheduler(optimizer, cfg: ToyGPTConfig):
     from NimbleML.optimizers import CosineAnnealing, LinearWarmup
 
     cosine_steps = max(1, cfg.max_steps - cfg.warmup_steps)
-    eta_min = cfg.lr * 0.1
+    eta_min = 0.0
     inner = CosineAnnealing(optimizer, T_max=cosine_steps, eta_min=eta_min)
     return LinearWarmup(inner, warmup_steps=cfg.warmup_steps), eta_min, cosine_steps
 
@@ -171,8 +171,9 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         rng_path = resume_dir / "rng.json"
         if rng_path.is_file():
             load_rng_state(rng_path, rng)
-        for _ in range(step):
-            scheduler.step()
+        # Fast-forward scheduler without O(step) Python loop on long resumes.
+        scheduler.last_epoch = step - 1
+        optimizer.set_lr(scheduler.get_lr())
         model.clear_pos_encoding_cache()
         print(f"[ckpt] resumed from {resume_dir} at step {step}")
 

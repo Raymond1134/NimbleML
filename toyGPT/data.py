@@ -47,6 +47,6 @@ def random_batch(
     inputs = windows[:, :-1]
     targets = windows[:, 1:]
     return (
-        Tensor.from_int64(inputs.copy().ravel(), (batch_size, seq_len)),
-        Tensor.from_int64(targets.copy().ravel(), (batch_size, seq_len)),
+        Tensor.from_int64(np.ascontiguousarray(inputs).ravel(), (batch_size, seq_len)),
+        Tensor.from_int64(np.ascontiguousarray(targets).ravel(), (batch_size, seq_len)),
     )
