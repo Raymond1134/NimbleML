@@ -51,11 +51,9 @@ def sample_text(
         window = ids[-seq_len:]
         if not window:
             break
-        if len(window) < seq_len:
-            window = [0] * (seq_len - len(window)) + window
-        inputs = Tensor.from_int64(window, (1, seq_len))
+        inputs = Tensor.from_int64(window, (1, len(window)))
         logits = model.forward(inputs)
-        logits_arr = np.asarray(logits.data, dtype=np.float32).reshape(seq_len, -1)
+        logits_arr = np.asarray(logits.data, dtype=np.float32).reshape(len(window), -1)
         last = logits_arr[-1]
         # Each forward builds an autograd graph with reference cycles; drop it
         # so generating many tokens does not accumulate GPU memory.

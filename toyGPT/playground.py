@@ -35,9 +35,9 @@ Anything else is sent to {ASSISTANT_NAME} as your message.
 @dataclass
 class PlaySettings:
     temperature: float = 0.8
-    top_k: int = 40
+    top_k: int = 0
     max_new_tokens: int = 200
-    checkpoint: str = "best"
+    checkpoint: str = "latest"
 
 
 @dataclass
@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description=f"Chat with {ASSISTANT_NAME} (toy GPT).")
     parser.add_argument("--config", type=Path, default=TOYGPT_ROOT / "gpt_toy_config.toml")
-    parser.add_argument("--checkpoint", type=str, default="best")
+    parser.add_argument("--checkpoint", type=str, default="latest")
     parser.add_argument("--temperature", type=float, default=-1.0)
     parser.add_argument("--top-k", type=int, default=-1)
     parser.add_argument("--len", type=int, default=0, dest="gen_len")

@@ -13,9 +13,9 @@ python toyGPT\train_gpt.py --resume latest
 python toyGPT\train_gpt.py --resume best
 python toyGPT\train_gpt.py --resume step_1000
 
-## Playground (Nova chatbot, loads best by default)
+## Playground (Nova chatbot, loads latest by default)
 python toyGPT\playground.py
-python toyGPT\playground.py --checkpoint best --temperature 0.8 --top-k 40 --len 300
+python toyGPT\playground.py --checkpoint latest --temperature 0.8 --top-k 0 --len 200
 
   :clear   :temp 0.8   :topk 40   :len 300   :ckpt latest   :quit
   (anything else = your message to Nova)

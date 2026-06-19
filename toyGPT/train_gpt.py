@@ -21,6 +21,7 @@ from toyGPT.config import TOYGPT_ROOT, ToyGPTConfig
 from toyGPT.data import random_batch
 from toyGPT.fineweb import load_token_bin, prepare_corpus
 from toyGPT.sampling import prompt_ids_from_corpus, sample_text
+from toyGPT.loss_history import LossHistory
 from toyGPT.train_utils import adamw_param_groups, load_rng_state, save_rng_state, seed_everything
 
 
@@ -57,11 +58,11 @@ def _eval_loss(model, loss_fn, val_ids, cfg: ToyGPTConfig, rng) -> float:
         # Forward-only graphs still build backward closures (reference cycles);
         # release each one before the next eval batch to bound GPU memory.
         del logits, loss, inputs, targets
-        gc.collect()
-        if using_gpu:
-            import cupy
+    gc.collect()
+    if using_gpu:
+        import cupy
 
-            cupy.cuda.Device().synchronize()
+        cupy.cuda.Device().synchronize()
     return total / cfg.eval_batches
 
 
@@ -161,6 +162,7 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
     best_val_loss: float | None = None
     evals_without_improvement = 0
     checkpoint_root = cfg.checkpoint_dir
+    loss_history = LossHistory(checkpoint_root / "loss_history.csv")
 
     if resume_dir is not None:
         from toyGPT.checkpoint import load_checkpoint
@@ -175,6 +177,7 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         scheduler.last_epoch = step - 1
         optimizer.set_lr(scheduler.get_lr())
         model.clear_pos_encoding_cache()
+        loss_history.truncate_after(step)
         print(f"[ckpt] resumed from {resume_dir} at step {step}")
 
     tokens_per_step = cfg.batch_size * cfg.seq_len
@@ -251,12 +254,16 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         model.clear_pos_encoding_cache()
         optimizer.step()
         scheduler.step()
-        gc.collect()
+        if cfg.gc_every > 0 and step % cfg.gc_every == 0:
+            gc.collect()
         if using_gpu:
             import cupy
 
-            cupy.cuda.Device().synchronize()
+            # Sync when logging (accurate tok/s) or after GC (reclaim closure cycles).
+            if step % cfg.log_every == 0 or (cfg.gc_every > 0 and step % cfg.gc_every == 0):
+                cupy.cuda.Device().synchronize()
         step += 1
+        loss_history.maybe_record(step, loss_val)
 
         elapsed = time.perf_counter() - t0
         step_ms = elapsed * 1000.0

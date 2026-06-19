@@ -95,6 +95,7 @@ class ToyGPTConfig:
     early_stop_patience: int = 0
     log_grad_norm: int = 0
     log_grad_norm_until_step: int = 0
+    gc_every: int = 1
     seed: int = 42
     config_path: Path = TOYGPT_ROOT / "gpt_toy_config.toml"
 
@@ -145,6 +146,7 @@ class ToyGPTConfig:
             "early_stop_patience": int(train.get("early_stop_patience", 0)),
             "log_grad_norm": int(log_cfg.get("log_grad_norm", 0)),
             "log_grad_norm_until_step": int(log_cfg.get("log_grad_norm_until_step", 0)),
+            "gc_every": int(log_cfg.get("gc_every", 1)),
             "seed": int(seed_cfg.get("seed", 42)),
             "config_path": path.resolve(),
         }
