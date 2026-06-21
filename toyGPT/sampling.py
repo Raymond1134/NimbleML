@@ -31,6 +31,26 @@ def prompt_ids_from_corpus(
     return [int(x) for x in np.asarray(slice_arr, dtype=np.int64).tolist()]
 
 
+def apply_repetition_penalty(scores, input_ids, penalty: float = 1.0):
+    """GPT-2 / HuggingFace repetition penalty on next-token logits.
+
+    For tokens already in ``input_ids``: divide positive logits and multiply
+    negative logits by ``penalty`` (>1 discourages reuse). ``penalty=1`` is a no-op.
+    """
+    if penalty == 1.0:
+        return scores
+    if penalty <= 0:
+        raise ValueError(f"repetition_penalty must be > 0, got {penalty}")
+    if not input_ids:
+        return scores
+
+    scores = np.asarray(scores, dtype=np.float32)
+    idx = np.unique(np.asarray(input_ids, dtype=np.int64))
+    selected = scores[idx]
+    scores[idx] = np.where(selected < 0, selected * penalty, selected / penalty)
+    return scores
+
+
 def sample_text(
     model,
     tokenizer,
@@ -40,6 +60,7 @@ def sample_text(
     max_new_tokens: int,
     temperature: float = 0.8,
     top_k: int = 0,
+    repetition_penalty: float = 1.0,
     rng: _host_np.random.Generator | None = None,
     include_prompt: bool = True,
 ) -> str:
@@ -59,6 +80,7 @@ def sample_text(
         # so generating many tokens does not accumulate GPU memory.
         del logits
         gc.collect()
+        last = apply_repetition_penalty(last, ids, repetition_penalty)
         if temperature <= 0:
             next_id = int(np.argmax(last))
         else:

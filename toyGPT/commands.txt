@@ -15,14 +15,22 @@ python toyGPT\train_gpt.py --resume step_1000
 
 ## Playground (Nova chatbot, loads latest by default)
 python toyGPT\playground.py
-python toyGPT\playground.py --checkpoint latest --temperature 0.8 --top-k 0 --len 200
+python toyGPT\playground.py --checkpoint latest --temperature 0.8 --top-k 0 --repetition-penalty 1.2 --len 200
 
-  :clear   :temp 0.8   :topk 40   :len 300   :ckpt latest   :quit
+  :clear   :temp 0.8   :topk 0   :rep 1.2   :len 200   :ckpt latest   :quit
   (anything else = your message to Nova)
 
 ## One-shot generate
 python toyGPT\generate.py --checkpoint best --prompt "The"
-python toyGPT\generate.py --checkpoint best --temperature 0.8 --top-k 40 --chars 300
+python toyGPT\generate.py --checkpoint best --temperature 0.8 --top-k 0 --repetition-penalty 1.2 --chars 300
+
+## Modal (A100 cloud training)
+python -m modal run --detach toyGPT/modal_train.py --resume latest
+python -m modal app list
+python -m modal app stop ap-XXXXXXXX
+python -m modal run toyGPT/modal_train.py --download
+  (downloads latest, best, step_*, loss_history.csv -> toyGPT/checkpoints/)
+python toyGPT/modal_train.py download
 
 ## Paths
   config:      toyGPT\gpt_toy_config.toml
@@ -32,6 +40,8 @@ python toyGPT\generate.py --checkpoint best --temperature 0.8 --top-k 40 --chars
 
 ## Troubleshooting CUDA / NaN
   - Use batch_size=8 in gpt_toy_config.toml (not 10+ on 8 GB VRAM).
+  - grad_accum_steps simulates a larger batch without extra VRAM (e.g. 8 x 32 = effective 256).
+  - gc_every=1 reclaims CuPy pool memory each step; raise it only if steps get slower.
   - After any CUDA crash, start a fresh terminal/Python process (GPU context is poisoned).
   - Starting loss should be ~9–10, not ~300 (embedding init is 0.02 std).
   - Training skips steps with non-finite loss/grad and logs a warning.

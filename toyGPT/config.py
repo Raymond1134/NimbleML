@@ -66,6 +66,7 @@ class ToyGPTConfig:
     seq_len: int = 256
     ff_mult: int = 4
     batch_size: int = 16
+    grad_accum_steps: int = 1
     lr: float = 3e-4
     weight_decay: float = 0.1
     warmup_steps: int = 100
@@ -88,6 +89,7 @@ class ToyGPTConfig:
     eval_batches: int = 20
     sample_chars: int = 200
     temperature: float = 0.8
+    repetition_penalty: float = 1.0
     verbose: int = 1
     log_every: int = 1
     bpe_log_every: int = 1
@@ -117,6 +119,7 @@ class ToyGPTConfig:
             "seq_len": int(model.get("seq_len", 256)),
             "ff_mult": int(model.get("ff_mult", 4)),
             "batch_size": int(train.get("batch_size", 16)),
+            "grad_accum_steps": int(train.get("grad_accum_steps", 1)),
             "lr": float(train.get("lr", 3e-4)),
             "weight_decay": float(train.get("weight_decay", 0.1)),
             "warmup_steps": int(train.get("warmup_steps", 100)),
@@ -139,6 +142,7 @@ class ToyGPTConfig:
             "eval_batches": int(eval_cfg.get("eval_batches", 20)),
             "sample_chars": int(eval_cfg.get("sample_chars", 200)),
             "temperature": float(eval_cfg.get("temperature", 0.8)),
+            "repetition_penalty": float(eval_cfg.get("repetition_penalty", 1.0)),
             "verbose": int(log_cfg.get("verbose", 1)),
             "log_every": int(log_cfg.get("log_every", 1)),
             "bpe_log_every": int(log_cfg.get("bpe_log_every", 1)),

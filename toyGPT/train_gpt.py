@@ -58,11 +58,7 @@ def _eval_loss(model, loss_fn, val_ids, cfg: ToyGPTConfig, rng) -> float:
         # Forward-only graphs still build backward closures (reference cycles);
         # release each one before the next eval batch to bound GPU memory.
         del logits, loss, inputs, targets
-    gc.collect()
-    if using_gpu:
-        import cupy
-
-        cupy.cuda.Device().synchronize()
+    _cleanup_gpu(using_gpu)
     return total / cfg.eval_batches
 
 
@@ -180,13 +176,16 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         loss_history.truncate_after(step)
         print(f"[ckpt] resumed from {resume_dir} at step {step}")
 
-    tokens_per_step = cfg.batch_size * cfg.seq_len
+    accum = max(1, cfg.grad_accum_steps)
+    effective_batch = cfg.batch_size * accum
+    tokens_per_step = effective_batch * cfg.seq_len
     step_times: deque[float] = deque(maxlen=cfg.rolling_avg)
     step_tokens: deque[float] = deque(maxlen=cfg.rolling_avg)
     unstable_steps = 0
 
+    accum_msg = f" micro_batch={cfg.batch_size} grad_accum={accum} effective_batch={effective_batch}"
     print(
-        f"[train] start | max_steps={cfg.max_steps} tokens/step={tokens_per_step} "
+        f"[train] start | max_steps={cfg.max_steps} tokens/step={tokens_per_step}{accum_msg} "
         f"log_every={cfg.log_every} eval_every={cfg.eval_every} ckpt_every={cfg.checkpoint_every}"
     )
 
@@ -194,15 +193,28 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         t0 = time.perf_counter()
         optimizer.zero_grad(set_to_none=True)
 
-        inputs, targets = random_batch(
-            train_ids, batch_size=cfg.batch_size, seq_len=cfg.seq_len, rng=rng
-        )
-        logits = model.forward(inputs)
-        loss = loss_fn(logits, targets)
-        try:
-            loss.backward()
-        except Exception as exc:
-            print(f"[train] backward failed at step {step + 1}: {exc}")
+        loss_sum = 0.0
+        backward_failed = False
+        for micro in range(accum):
+            inputs, targets = random_batch(
+                train_ids, batch_size=cfg.batch_size, seq_len=cfg.seq_len, rng=rng
+            )
+            logits = model.forward(inputs)
+            loss = loss_fn(logits, targets)
+            loss_sum += float(loss.data[0])
+            if accum > 1:
+                loss = loss * (1.0 / accum)
+            try:
+                loss.backward()
+            except Exception as exc:
+                print(f"[train] backward failed at step {step + 1} micro {micro + 1}/{accum}: {exc}")
+                backward_failed = True
+                break
+            del logits, loss, inputs, targets
+            model.clear_pos_encoding_cache()
+            _cleanup_gpu(using_gpu)
+
+        if backward_failed:
             optimizer.zero_grad(set_to_none=True)
             model.clear_pos_encoding_cache()
             _cleanup_gpu(using_gpu)
@@ -216,8 +228,7 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
             step += 1
             continue
 
-        loss_val = float(loss.data[0])
-        del logits, loss, inputs, targets
+        loss_val = loss_sum / accum
 
         if not math.isfinite(loss_val):
             print(f"[train] warning: non-finite loss={loss_val} at step {step + 1}, skipping update")
@@ -255,13 +266,11 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
         optimizer.step()
         scheduler.step()
         if cfg.gc_every > 0 and step % cfg.gc_every == 0:
-            gc.collect()
-        if using_gpu:
+            _cleanup_gpu(using_gpu)
+        elif using_gpu and step % cfg.log_every == 0:
             import cupy
 
-            # Sync when logging (accurate tok/s) or after GC (reclaim closure cycles).
-            if step % cfg.log_every == 0 or (cfg.gc_every > 0 and step % cfg.gc_every == 0):
-                cupy.cuda.Device().synchronize()
+            cupy.cuda.Device().synchronize()
         step += 1
         loss_history.maybe_record(step, loss_val)
 
@@ -308,6 +317,7 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
                     seq_len=cfg.seq_len,
                     max_new_tokens=cfg.sample_chars,
                     temperature=cfg.temperature,
+                    repetition_penalty=cfg.repetition_penalty,
                     rng=sample_rng,
                     include_prompt=False,
                 )[: cfg.sample_chars].replace("\n", "\\n")

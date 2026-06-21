@@ -24,6 +24,7 @@ Chat commands (leading ':'):
   :clear             start a new conversation
   :temp <float>      sampling temperature (0 = greedy)
   :topk <int>        top-k filter (0 = off)
+  :rep <float>       repetition penalty (1.0 = off, 1.2 typical)
   :len <int>         max new tokens per reply
   :ckpt best|latest|step_N   reload checkpoint
   :quit              exit
@@ -36,6 +37,7 @@ Anything else is sent to {ASSISTANT_NAME} as your message.
 class PlaySettings:
     temperature: float = 0.8
     top_k: int = 0
+    repetition_penalty: float = 1.2
     max_new_tokens: int = 200
     checkpoint: str = "latest"
 
@@ -90,6 +92,7 @@ def _generate_reply(model, tokenizer, settings: PlaySettings, session: ChatSessi
         max_new_tokens=settings.max_new_tokens,
         temperature=settings.temperature,
         top_k=settings.top_k,
+        repetition_penalty=settings.repetition_penalty,
         include_prompt=False,
     )
     return _trim_reply(raw)
@@ -101,7 +104,7 @@ def _print_banner(step: int | None, ckpt_name: str, settings: PlaySettings) -> N
         f"\n{ASSISTANT_NAME}: Hi — I'm {ASSISTANT_NAME}, your toy GPT assistant "
         f"({ckpt_name}, {step_label}).\n"
         f"temp={settings.temperature} top_k={settings.top_k} "
-        f"max_tokens={settings.max_new_tokens}\n"
+        f"rep_pen={settings.repetition_penalty} max_tokens={settings.max_new_tokens}\n"
         f"Type :help for commands.\n"
     )
 
@@ -134,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--checkpoint", type=str, default="latest")
     parser.add_argument("--temperature", type=float, default=-1.0)
     parser.add_argument("--top-k", type=int, default=-1)
+    parser.add_argument("--repetition-penalty", type=float, default=-1.0)
     parser.add_argument("--len", type=int, default=0, dest="gen_len")
     args = parser.parse_args(argv)
 
@@ -141,11 +145,14 @@ def main(argv: list[str] | None = None) -> int:
     settings = PlaySettings(
         max_new_tokens=args.gen_len if args.gen_len > 0 else cfg.sample_chars,
         checkpoint=args.checkpoint,
+        repetition_penalty=cfg.repetition_penalty,
     )
     if args.temperature >= 0:
         settings.temperature = args.temperature
     if args.top_k >= 0:
         settings.top_k = args.top_k
+    if args.repetition_penalty >= 0:
+        settings.repetition_penalty = args.repetition_penalty
 
     model, tokenizer, state, ckpt_dir = load_for_inference(cfg, settings.checkpoint)
     session = ChatSession()
@@ -181,6 +188,9 @@ def main(argv: list[str] | None = None) -> int:
         elif cmd == "topk" and len(parts) >= 2:
             settings.top_k = int(parts[1])
             print(f"top_k={settings.top_k}")
+        elif cmd in ("rep", "reppen") and len(parts) >= 2:
+            settings.repetition_penalty = float(parts[1])
+            print(f"repetition_penalty={settings.repetition_penalty}")
         elif cmd == "len" and len(parts) >= 2:
             settings.max_new_tokens = int(parts[1])
             print(f"max_new_tokens={settings.max_new_tokens}")
