@@ -48,16 +48,25 @@ def _eval_loss(model, loss_fn, val_ids, cfg: ToyGPTConfig, rng) -> float:
     from NimbleML.utils.np_backend import using_gpu
 
     total = 0.0
-    for _ in range(cfg.eval_batches):
+    t0 = time.perf_counter()
+    log_every = max(1, min(64, cfg.eval_batches // 8))
+    for i in range(cfg.eval_batches):
         inputs, targets = random_batch(
             val_ids, batch_size=cfg.batch_size, seq_len=cfg.seq_len, rng=rng
         )
         logits = model.forward(inputs)
         loss = loss_fn(logits, targets)
         total += float(loss.data[0])
-        # Forward-only graphs still build backward closures (reference cycles);
-        # release each one before the next eval batch to bound GPU memory.
         del logits, loss, inputs, targets
+        if using_gpu and (i + 1) % 32 == 0:
+            gc.collect()
+        if (i + 1) % log_every == 0 or i + 1 == cfg.eval_batches:
+            elapsed = time.perf_counter() - t0
+            print(
+                f"[eval] batch {i + 1}/{cfg.eval_batches} "
+                f"partial_loss={total / (i + 1):.4f} elapsed={elapsed:.1f}s",
+                flush=True,
+            )
     _cleanup_gpu(using_gpu)
     return total / cfg.eval_batches
 

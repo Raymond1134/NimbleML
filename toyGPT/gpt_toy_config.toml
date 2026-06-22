@@ -13,20 +13,20 @@ ff_mult = 4
 # micro batch 8 fits 8 GB VRAM; grad_accum 8 -> effective batch 64 (matches Modal).
 # Use 32 for effective 256 (~60 s/step, looks stuck); 8 gives ~12-15 s/step and ~1300 tok/s.
 batch_size = 8
-grad_accum_steps = 32
+grad_accum_steps = 128
 # Modal used 6e-4 @ batch 64; effective 256 wants ~1.2e-3 (sqrt rule) but 6e-4 is
 # safer when resuming mid-cosine from a smaller micro-batch run.
-lr = 1.7e-3
+lr = 2.5e-4
 weight_decay = 0.1
 warmup_steps = 63
 # Plan A: 65M params overtrained ~2x past Chinchilla (40 tok/param) for a stronger
 # small model. With grad_accum, each optimizer step sees 65536 tokens (256 x 256).
-max_steps = 40000
+max_steps = 10000
 grad_clip = 1.0
 dtype = "float32"
 device = "gpu"
 # ~30 min at ~1.3 s/step; saves step_N + copies latest
-checkpoint_every = 50
+checkpoint_every = 10
 checkpoint_dir = "checkpoints"
 
 # 0 = disabled; stop after N evals with no val_loss improvement
@@ -51,8 +51,8 @@ tokenizer_path = "data/tokenizer.json"
 
 [eval]
 # val_loss + best ckpt ~every 45 min at ~1.3 s/step (staggered from checkpoint_every)
-eval_every = 50
-eval_batches = 50
+eval_every = 10
+eval_batches = 4096
 sample_chars = 200
 temperature = 0.8
 # 1.0 = off; 1.1–1.3 typical for less repetitive generation (GPT-2 / HF style)

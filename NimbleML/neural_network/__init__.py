@@ -1,5 +1,3 @@
-"""Package exports and public API surface."""
-
 from .module import Module, Sequential, residual
 
 __all__ = [
@@ -13,26 +11,21 @@ __all__ = [
     "residual",
 ]
 
+_LAZY = {
+    "FeedForward": (".feed_forward", "FeedForward"),
+    "Attention": (".attention", "Attention"),
+    "MultiHeadAttention": (".attention", "MultiHeadAttention"),
+    "make_causal_mask": ("NimbleML.utils.mask", "make_causal_mask"),
+    "TransformerBlock": (".transformer", "TransformerBlock"),
+}
+
 
 def __getattr__(name):
-    if name == "FeedForward":
-        from .feed_forward import FeedForward
+    spec = _LAZY.get(name)
+    if spec is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr = spec
+    import importlib
 
-        return FeedForward
-    if name == "Attention":
-        from .attention import Attention
-
-        return Attention
-    if name == "MultiHeadAttention":
-        from .attention import MultiHeadAttention
-
-        return MultiHeadAttention
-    if name == "make_causal_mask":
-        from .attention import make_causal_mask
-
-        return make_causal_mask
-    if name == "TransformerBlock":
-        from .transformer import TransformerBlock
-
-        return TransformerBlock
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    mod = importlib.import_module(module_name, __name__)
+    return getattr(mod, attr)

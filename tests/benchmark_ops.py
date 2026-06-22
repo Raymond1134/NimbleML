@@ -36,7 +36,8 @@ from NimbleML.layers.conv2d import Conv2D
 from NimbleML.layers.dense import Dense
 from NimbleML.losses import CrossEntropyLoss
 from NimbleML.models.gpt import GPT
-from NimbleML.neural_network.attention import Attention, causal_mask_tensor
+from NimbleML.utils.mask import causal_mask_tensor
+from NimbleML.neural_network.attention import Attention
 from NimbleML.neural_network.feed_forward import FeedForward
 from NimbleML.optimizers import Adam, AdamW, SGD, StepLR
 from NimbleML.utils.autograd_profile import profile_gpt_forward

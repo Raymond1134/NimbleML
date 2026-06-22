@@ -1,22 +1,32 @@
-"""Base class for all neural network modules"""
+"""Base class for all neural network modules."""
 
 
 class Module:
-    """Public class Module."""
+    """Base class for all neural network modules."""
+
     def forward(self, x):
-        """Public function forward."""
+        """Computes the forward pass of the module.
+
+        Must be implemented by all subclasses.
+        """
         raise NotImplementedError("Not implemented yet")
 
     def parameters(self):
-        """Public function parameters."""
+        """Returns all learnable parameters in the module."""
         return []
 
     def train(self):
-        """Public function train."""
+        """Sets module to training mode.
+
+        Used for layers that behave differently during training (e.g., dropout, batch norm).
+        """
         pass
 
     def eval(self):
-        """Public function eval."""
+        """Sets module to evaluation mode.
+
+        Used to disable training-specific behavior.
+        """
         pass
 
     def __call__(self, x):
@@ -24,7 +34,8 @@ class Module:
 
 
 class Sequential(Module):
-    """Public class Sequential."""
+    """A container that applies layers sequentially."""
+
     def __init__(self, *layers):
         self.layers = list(layers)
 
@@ -32,13 +43,25 @@ class Sequential(Module):
         return iter(self.layers)
 
     def forward(self, data):
-        """Public function forward."""
+        """Applies a sequence of modules in order.
+
+        Args:
+            data: Input tensor.
+
+        Returns:
+            Output after passing through all layers sequentially.
+        
+        Examples:
+            >>> sequential = Sequential(Dense(10, 20), Dense(20, 30))
+            >>> data = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3), requires_grad=True)
+            >>> output = sequential(data)
+        """
         for layer in self.layers:
             data = layer(data)
         return data
 
     def parameters(self):
-        """Public function parameters."""
+        """Returns all parameters from contained layers."""
         params = []
         for layer in self.layers:
             if hasattr(layer, "parameters"):
@@ -46,18 +69,33 @@ class Sequential(Module):
         return params
 
     def train(self):
-        """Public function train."""
+        """Sets all submodules to training mode."""
         for layer in self.layers:
             if hasattr(layer, "train"):
                 layer.train()
 
     def eval(self):
-        """Public function eval."""
+        """Sets all submodules to evaluation mode."""
         for layer in self.layers:
             if hasattr(layer, "eval"):
                 layer.eval()
 
 
 def residual(x, sublayer):
-    """Skip connection: output = x + sublayer(x). Preserves shape; gradients flow through x."""
+    """Applies a residual (skip) connection.
+
+    Computes: output = x + sublayer(x)
+
+    Args:
+        x: Input tensor.
+        sublayer (callable): Function or module applied to x.
+
+    Returns:
+        Tensor: Residual-connected output with same shape as x.
+    
+    Examples:
+        >>> x = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3), requires_grad=True)
+        >>> sublayer = Dense(3, 3)
+        >>> output = residual(x, sublayer)
+    """
     return x + sublayer(x)

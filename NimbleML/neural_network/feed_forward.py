@@ -1,6 +1,5 @@
-"""Transformer FFN: expand -> GELU -> project back (per-token MLP)"""
+"""Transformer feedforward."""
 from math import prod
-
 from NimbleML.activations.gelu import gelu_backward, gelu_forward
 from NimbleML.layers import Dense
 from NimbleML.neural_network.module import Module
@@ -9,7 +8,7 @@ from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 
 
 class FeedForward(Module):
-    """Public class FeedForward."""
+    """Transformer feedforward network (per-token MLP)."""
 
     def __init__(self, d_model, ff_mult=4):
         hidden = ff_mult * d_model
@@ -17,7 +16,31 @@ class FeedForward(Module):
         self.dense2 = Dense(hidden, d_model)
 
     def forward(self, x):
-        """Fused FFN: matmul+bias -> GELU -> matmul+bias with one autograd node."""
+        """Applies the Transformer feedforward network.
+
+        This module processes each token independently using a 2-layer MLP:
+
+            1. Linear projection: d_model → ff_mult * d_model
+            2. GELU activation
+            3. Linear projection: back to d_model
+
+        Args:
+            x (Tensor): Input tensor of shape (batch, seq, d_model).
+
+        Returns:
+            Tensor: Output tensor of shape (batch, seq, d_model).
+        
+        Raises:
+            ValueError:
+                - If the input tensor does not match the expected shape.
+                - If the dense layers do not match the expected shapes.
+                - If the output tensor does not match the expected shape.
+        
+        Examples:
+            >>> feed_forward = FeedForward(d_model=768, ff_mult=4)
+            >>> x = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3, 768), requires_grad=True)
+            >>> output = feed_forward(x)
+        """
         weights1 = self.dense1.weights
         bias1 = self.dense1.biases
         weights2 = self.dense2.weights
@@ -109,7 +132,7 @@ class FeedForward(Module):
         return out
 
     def parameters(self):
-        """Public function parameters."""
+        """Returns all learnable parameters in the feedforward network."""
         params = []
         for layer in (self.dense1, self.dense2):
             params.extend(layer.parameters())

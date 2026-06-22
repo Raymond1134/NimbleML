@@ -25,11 +25,19 @@ python toyGPT\generate.py --checkpoint best --prompt "The"
 python toyGPT\generate.py --checkpoint best --temperature 0.8 --top-k 0 --repetition-penalty 1.2 --chars 300
 
 ## Modal (A100 cloud training)
+# First time on a new Modal account / workspace:
+#   python -m modal setup          (browser login for alt account)
+#   python -m modal profile list     (note workspace name)
+#   $env:MODAL_PROFILE='your-workspace-name'
+#
+# Before launch: copy your local ckpt into checkpoints/latest (baked into image)
+#   Copy-Item -Recurse -Force toyGPT\checkpoints\modal_final toyGPT\checkpoints\latest
+#
 python -m modal run --detach toyGPT/modal_train.py --resume latest
 python -m modal app list
 python -m modal app stop ap-XXXXXXXX
 python -m modal run toyGPT/modal_train.py --download
-  (downloads latest, best, step_*, loss_history.csv -> toyGPT/checkpoints/)
+python -c "from toyGPT.modal_train import _upload_checkpoint; _upload_checkpoint()"
 python toyGPT/modal_train.py download
 
 ## Paths

@@ -11,7 +11,8 @@ from NimbleML.layers import Embedding, MaxPool2D
 from NimbleML.layers.conv2d import Conv2D
 from NimbleML.layers.dense import Dense
 from NimbleML.models.gpt import GPT
-from NimbleML.neural_network.attention import Attention, make_causal_mask
+from NimbleML.utils.mask import make_causal_mask
+from NimbleML.neural_network.attention import Attention
 from NimbleML.optimizers import SGD, StepLR
 from NimbleML.utils.clip_grad import clip_grad_norm_
 from NimbleML.utils.np_backend import np, set_dtype
@@ -135,7 +136,8 @@ def test_attention_shape_with_causal_mask():
 
 
 def test_multi_head_attention_forward_backward():
-    from NimbleML.neural_network.attention import MultiHeadAttention, causal_mask_tensor
+    from NimbleML.utils.mask import causal_mask_tensor
+    from NimbleML.neural_network.attention import MultiHeadAttention
 
     batch, seq_len, d_model, num_heads = 2, 8, 32, 4
     mha = MultiHeadAttention(d_model, num_heads)

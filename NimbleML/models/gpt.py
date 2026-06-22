@@ -1,6 +1,5 @@
-"""Minimal GPT-style language model."""
+"""GPT-style language model."""
 from math import prod
-
 from NimbleML.layers import Embedding, RMSNorm
 from NimbleML.neural_network.module import Module, Sequential
 from NimbleML.neural_network.transformer import TransformerBlock
@@ -9,12 +8,7 @@ from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 
 
 class GPT(Module):
-    """GPT language model with tied token embedding and LM head (GPT-2 style).
-
-    Uses learned absolute positional embeddings. ``forward_prefix`` slices rows
-    ``0 .. seq_len-1`` directly; results are cached per ``seq_len`` until
-    ``clear_pos_encoding_cache()`` runs (once per optimizer step in training).
-    """
+    """Minimal GPT-style autoregressive language model."""
 
     def __init__(self, vocab_size, d_model, num_heads, num_layers, max_seq_len, ff_mult=4):
         if d_model % num_heads != 0:
@@ -26,24 +20,45 @@ class GPT(Module):
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
         self.ff_mult = ff_mult
-
         self.token_emb = Embedding(vocab_size, d_model)
         self.pos_emb = Embedding(max_seq_len, d_model)
         self.blocks = Sequential(*[TransformerBlock(d_model, num_heads, ff_mult) for _ in range(num_layers)])
         self.ln = RMSNorm(d_model)
         self._pos_cache: dict[int, Tensor] = {}
 
-    def _absolute_pos_encoding(self, seq_len: int) -> Tensor:
-        if seq_len not in self._pos_cache:
-            self._pos_cache[seq_len] = self.pos_emb.forward_prefix(seq_len)
-        return self._pos_cache[seq_len]
-
     def clear_pos_encoding_cache(self) -> None:
-        """Invalidate cached ``pos_emb(0:seq_len)`` tensors."""
+        """Clears cached positional embeddings for all sequence lengths."""
         self._pos_cache.clear()
 
     def forward(self, input_ids):
-        """Run the model on token IDs and return logits ``(batch, seq, vocab_size)``."""
+        """Runs a forward pass of the GPT model.
+
+        Computes token logits for next-token prediction: logits = GPT(input_ids) → (batch, seq_len, vocab_size)
+
+        The model:
+            1. Embeds token IDs
+            2. Adds learned positional embeddings
+            3. Passes through transformer blocks
+            4. Applies RMS normalization
+            5. Projects to vocabulary space using tied embeddings
+
+        Args:
+            input_ids (Tensor): Integer token IDs of shape (batch, seq_len).
+
+        Returns:
+            Tensor: Logits over vocabulary with shape (batch, seq_len, vocab_size).
+
+        Raises:
+            ValueError:
+                - If input_ids is not 2D.
+                - If sequence length exceeds max_seq_len.
+                - If hidden dimension does not match model configuration.
+        
+        Examples:
+            >>> model = GPT(vocab_size=10000, d_model=768, num_heads=12, num_layers=12, max_seq_len=1024)
+            >>> input_ids = Tensor(np.array([[1, 2, 3, 4, 5]]), shape=(1, 5), requires_grad=True)
+            >>> logits = model(input_ids)
+        """
         if input_ids.ndim != 2:
             raise ValueError(f"input_ids must be 2D (batch, seq), got shape {input_ids.shape}.")
 
@@ -98,8 +113,21 @@ class GPT(Module):
         return out
 
     def parameters(self):
-        """Return learnable parameters (token embedding weights appear once)."""
+        """Returns learnable parameters of the layer.
+
+        Returns:
+            list[Tensor]: Learnable parameters of the layer.
+        
+        Examples:
+            >>> model = GPT(vocab_size=10000, d_model=768, num_heads=12, num_layers=12, max_seq_len=1024)
+            >>> params = model.parameters()
+        """
         params = []
         for layer in (self.token_emb, self.pos_emb, self.blocks, self.ln):
             params.extend(layer.parameters())
         return params
+
+    def _absolute_pos_encoding(self, seq_len: int) -> Tensor:
+        if seq_len not in self._pos_cache:
+            self._pos_cache[seq_len] = self.pos_emb.forward_prefix(seq_len)
+        return self._pos_cache[seq_len]
