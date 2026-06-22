@@ -16,9 +16,9 @@ batch_size = 8
 grad_accum_steps = 32
 # Modal used 6e-4 @ batch 64; effective 256 wants ~1.2e-3 (sqrt rule) but 6e-4 is
 # safer when resuming mid-cosine from a smaller micro-batch run.
-lr = 6.0e-4
+lr = 1.7e-3
 weight_decay = 0.1
-warmup_steps = 1000
+warmup_steps = 63
 # Plan A: 65M params overtrained ~2x past Chinchilla (40 tok/param) for a stronger
 # small model. With grad_accum, each optimizer step sees 65536 tokens (256 x 256).
 max_steps = 40000
@@ -47,12 +47,12 @@ val_tokens = 1000000
 tokenizer_sample_mb = 400
 data_dir = "data"
 cache_dir = "data/cache"
-tokenizer_path = "data/tokenizer.json"
+tokenizer_path = "data/tokenizer.json"  
 
 [eval]
 # val_loss + best ckpt ~every 45 min at ~1.3 s/step (staggered from checkpoint_every)
 eval_every = 50
-eval_batches = 5
+eval_batches = 50
 sample_chars = 200
 temperature = 0.8
 # 1.0 = off; 1.1–1.3 typical for less repetitive generation (GPT-2 / HF style)
@@ -62,7 +62,7 @@ repetition_penalty = 1.2
 verbose = 0
 # log_every only affects print cadence; step timing still syncs every step
 log_every = 1
-log_grad_norm = 0
+log_grad_norm = 1
 bpe_log_every = 5
 rolling_avg = 50
 # reclaim autograd closure cycles + CuPy pool blocks every N optimizer steps

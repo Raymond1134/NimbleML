@@ -8,7 +8,7 @@ from .core import eval, forward, parameters, train
 from .layers import Conv2D, Dense, Dropout, Embedding, Flatten, MaxPool2D
 from .neural_network import Module, Sequential
 from .activations import Relu, Softmax
-from .losses import CrossEntropyLoss
+from .losses import CrossEntropyLoss, L1Loss, MSELoss
 from .optimizers import Adam, AdamW, NAG, Optimizer, RMSProp, SGD, SGDM
 from .models import GPT
 from .metrics import accuracy_score, mean_absolute_error, mean_squared_error, precision_recall_f1, r2_score
@@ -34,6 +34,8 @@ __all__ = [
     "Relu",
     "Softmax",
     "CrossEntropyLoss",
+    "MSELoss",
+    "L1Loss",
     "Optimizer",
     "SGD",
     "SGDM",

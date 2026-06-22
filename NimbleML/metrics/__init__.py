@@ -1,5 +1,3 @@
-"""Classification and regression metrics."""
-
 from .classification import accuracy_score, precision_recall_f1
 from .regression import mean_absolute_error, mean_squared_error, r2_score
 

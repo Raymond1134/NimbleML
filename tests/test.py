@@ -244,6 +244,36 @@ def test_cross_entropy_ignore_index():
     assert np.any(grad != 0)
 
 
+def test_mse_loss_forward_backward():
+    from NimbleML.losses import MSELoss
+    from NimbleML.metrics import mean_squared_error
+
+    loss_fn = MSELoss()
+    pred = Tensor(np.array([1.0, 2.0, 3.0], dtype=np.float64), (3,), requires_grad=True)
+    target = np.array([1.0, 2.0, 4.0], dtype=np.float64)
+    loss = loss_fn(pred, target)
+    assert loss.shape == ()
+    assert np.isclose(float(loss.data[0]), mean_squared_error(target, np.asarray(pred.data)))
+    loss.backward()
+    assert pred.grad is not None
+    assert np.allclose(np.asarray(pred.grad), 2.0 * (np.asarray(pred.data) - target) / 3.0)
+
+
+def test_l1_loss_forward_backward():
+    from NimbleML.losses import L1Loss
+    from NimbleML.metrics import mean_absolute_error
+
+    loss_fn = L1Loss()
+    pred = Tensor(np.array([1.0, 2.0, 3.0], dtype=np.float64), (3,), requires_grad=True)
+    target = np.array([1.0, 2.0, 4.0], dtype=np.float64)
+    loss = loss_fn(pred, target)
+    assert loss.shape == ()
+    assert np.isclose(float(loss.data[0]), mean_absolute_error(target, np.asarray(pred.data)))
+    loss.backward()
+    assert pred.grad is not None
+    assert np.allclose(np.asarray(pred.grad), np.sign(np.asarray(pred.data) - target) / 3.0)
+
+
 def test_gpt_checkpoint_save_load(tmp_path=None):
     ckpt_path = Path(__file__).parent / "_test_ckpt_gpt.npz" if tmp_path is None else tmp_path / "gpt.npz"
     try:
