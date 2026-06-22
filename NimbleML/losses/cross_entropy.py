@@ -1,57 +1,51 @@
-"""Cross-entropy loss (1D, 2D, or 3D sequence logits)"""
+"""Cross-entropy loss for 1D, 2D, or 3D sequence logits."""
 import numpy as host_np
-
 from NimbleML.activations.softmax import softmax_forward
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor, _save_for_backward
 
 
-def _softmax_rows(logits_arr):
-    return softmax_forward(logits_arr, axis=1)
-
-
-def _log_softmax_cross_entropy(logits_arr, label_indices):
-    """Mean negative log-likelihood without storing softmax probabilities."""
-    max_vals = np.max(logits_arr, axis=1, keepdims=True)
-    shifted = logits_arr - max_vals
-    log_sum_exp = max_vals.ravel() + np.log(np.sum(np.exp(shifted), axis=1))
-    correct_logits = logits_arr[np.arange(label_indices.size), label_indices]
-    per_sample = log_sum_exp - correct_logits
-    return float(np.sum(per_sample) / label_indices.size)
-
-
-def _cross_entropy_logits_grad(logits_arr, label_indices, flat_batch):
-    """Gradient w.r.t. logits: (softmax - one_hot) / batch_size."""
-    probs = _softmax_rows(logits_arr)
-    grad = probs.copy()
-    grad[np.arange(flat_batch), label_indices] -= 1.0
-    grad /= flat_batch
-    return grad
-
-
 class CrossEntropyLoss:
-    """Fused softmax + log + mean cross-entropy for 1D/2D/3D logits."""
+    """Cross-entropy loss for multi-class classification.
+
+    Computes a softmax and negative log-likelihood loss from
+    raw logits. Supports 1D, 2D, and 3D logits.
+
+    Shapes:
+        - 1D logits: ``(classes,)``
+        - 2D logits: ``(batch_size, classes)``
+        - 3D logits: ``(batch_size, sequence_length, classes)``
+    """
 
     def __call__(self, logits, labels, ignore_index=None):
         return self.forward(logits, labels, ignore_index=ignore_index)
 
-    def _flatten_labels(self, labels, batch_size):
-        if isinstance(labels, Tensor):
-            label_arr = np.asarray(labels.data, dtype=np.int64).reshape(-1)
-        elif isinstance(labels, (list, tuple)):
-            label_arr = np.asarray(labels, dtype=np.int64).reshape(-1)
-        else:
-            label_arr = np.asarray(labels, dtype=np.int64).reshape(-1)
-
-        if label_arr.size != batch_size:
-            raise ValueError(
-                f"Number of labels ({label_arr.size}) must equal batch size ({batch_size})."
-            )
-        return label_arr
-
     def forward(self, logits, labels, ignore_index=None):
-        """Public function forward."""
+        """Compute the cross-entropy loss.
+
+        Supports classification and sequence modeling logits.
+
+        Args:
+            logits (Tensor): Input logits with shape:
+                - ``(classes,)``
+                - ``(batch_size, classes)``
+                - ``(batch_size, sequence_length, classes)``
+            labels: Target class indices.
+            ignore_index (int, optional): Label value to ignore when computing the loss and gradients.
+
+        Returns:
+            Tensor: Scalar loss tensor.
+
+        Raises:
+            ValueError: If logits are not 1D, 2D, or 3D.
+        
+        Examples:
+            >>> loss = CrossEntropyLoss()
+            >>> logits = Tensor(np.array([0.1, 0.2, 0.3]), shape=(3,), requires_grad=True)
+            >>> labels = Tensor(np.array([0]), shape=(1,), requires_grad=True)
+            >>> print(loss(logits, labels))
+        """
         out_shape = logits.shape
 
         if logits.ndim == 1:
@@ -83,7 +77,7 @@ class CrossEntropyLoss:
             label_indices_host = label_indices_host[valid]
 
         flat_batch = int(label_indices_host.size)
-        loss = _log_softmax_cross_entropy(logits_arr, label_indices_host)
+        loss = self._log_softmax_cross_entropy(logits_arr, label_indices_host)
         saved_logits = _save_for_backward(
             Tensor._asarray(logits.data).reshape(total_batch, class_count)
         )
@@ -109,7 +103,7 @@ class CrossEntropyLoss:
             else:
                 active_logits = full_logits
 
-            grad = _cross_entropy_logits_grad(active_logits, label_indices_host, flat_batch)
+            grad = self._cross_entropy_logits_grad(active_logits, label_indices_host, flat_batch)
             grad *= grad_scale
 
             if ignore_index is not None:
@@ -127,3 +121,32 @@ class CrossEntropyLoss:
 
         output._backward = _backward
         return output
+
+    def _flatten_labels(self, labels, batch_size):
+        if isinstance(labels, Tensor):
+            label_arr = np.asarray(labels.data, dtype=np.int64).reshape(-1)
+        elif isinstance(labels, (list, tuple)):
+            label_arr = np.asarray(labels, dtype=np.int64).reshape(-1)
+        else:
+            label_arr = np.asarray(labels, dtype=np.int64).reshape(-1)
+
+        if label_arr.size != batch_size:
+            raise ValueError(
+                f"Number of labels ({label_arr.size}) must equal batch size ({batch_size})."
+            )
+        return label_arr
+
+    def _log_softmax_cross_entropy(self, logits_arr, label_indices):
+        max_vals = np.max(logits_arr, axis=1, keepdims=True)
+        shifted = logits_arr - max_vals
+        log_sum_exp = max_vals.ravel() + np.log(np.sum(np.exp(shifted), axis=1))
+        correct_logits = logits_arr[np.arange(label_indices.size), label_indices]
+        per_sample = log_sum_exp - correct_logits
+        return float(np.sum(per_sample) / label_indices.size)
+
+    def _cross_entropy_logits_grad(self, logits_arr, label_indices, flat_batch):
+        probs = softmax_forward(logits_arr, axis=1)
+        grad = probs.copy()
+        grad[np.arange(flat_batch), label_indices] -= 1.0
+        grad /= flat_batch
+        return grad

@@ -21,78 +21,6 @@ def causal_mask_tensor(seq_len):
     return Tensor(mask_arr.ravel(), mask_arr.shape, requires_grad=False)
 
 
-def _resolve_mask(mask, seq_len):
-    if mask is None:
-        return None
-    if isinstance(mask, Tensor):
-        mask_tensor = mask
-        if mask_tensor.shape != (seq_len, seq_len):
-            raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_tensor.shape}")
-        return Tensor._asarray(mask_tensor.data).reshape(mask_tensor.shape)
-    mask_arr = np.asarray(mask, dtype=np_backend.dtype)
-    if mask_arr.shape != (seq_len, seq_len):
-        raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_arr.shape}")
-    return mask_arr
-
-
-def _split_heads(tensor, batch, seq_len, num_heads, d_k):
-    """(batch, seq, d_model) -> (batch * num_heads, seq, d_k)."""
-    expected = (batch, seq_len, num_heads * d_k)
-    if tensor.shape != expected:
-        raise ValueError(f"Expected shape {expected}, got {tensor.shape}")
-
-    shape_4d = (batch, seq_len, num_heads, d_k)
-    arr = Tensor._asarray(tensor.data).reshape(shape_4d)
-    out_arr = np.transpose(arr, (0, 2, 1, 3))
-    out_shape = (batch * num_heads, seq_len, d_k)
-    out = Tensor(
-        out_arr.ravel(),
-        out_shape,
-        requires_grad=tensor.requires_grad,
-        _children=(tensor,),
-        _op="split_heads",
-    )
-
-    def _backward():
-        if out.grad is None or not tensor.requires_grad:
-            return
-        grad_out = _grad_out(out, (batch, num_heads, seq_len, d_k))
-        grad_in = np.transpose(grad_out, (0, 2, 1, 3))
-        tensor._accumulate_grad(grad_in.ravel())
-
-    out._backward = _backward
-    return out
-
-
-def _merge_heads(tensor, batch, seq_len, num_heads, d_k):
-    """(batch * num_heads, seq, d_k) -> (batch, seq, d_model)."""
-    expected = (batch * num_heads, seq_len, d_k)
-    if tensor.shape != expected:
-        raise ValueError(f"Expected shape {expected}, got {tensor.shape}")
-
-    shape_4d = (batch, num_heads, seq_len, d_k)
-    arr = Tensor._asarray(tensor.data).reshape(shape_4d)
-    out_arr = np.transpose(arr, (0, 2, 1, 3))
-    out_shape = (batch, seq_len, num_heads * d_k)
-    out = Tensor(
-        out_arr.ravel(),
-        out_shape,
-        requires_grad=tensor.requires_grad,
-        _children=(tensor,),
-        _op="merge_heads",
-    )
-
-    def _backward():
-        if out.grad is None or not tensor.requires_grad:
-            return
-        grad_out = _grad_out(out, (batch, seq_len, num_heads, d_k))
-        grad_in = np.transpose(grad_out, (0, 2, 1, 3))
-        tensor._accumulate_grad(grad_in.ravel())
-
-    out._backward = _backward
-    return out
-
-
 def scaled_dot_product_attention(Q, K, V, scale, mask=None):
     """
     Fused attention: QK^T / scale, optional mask, softmax, @V.
@@ -109,7 +37,17 @@ def scaled_dot_product_attention(Q, K, V, scale, mask=None):
         raise ValueError(f"Expected 3D Q/K/V, got ndim={Q.ndim}")
 
     seq_len = q_shape[-2]
-    mask_arr = _resolve_mask(mask, seq_len)
+    if mask is None:
+        mask_arr = None
+    elif isinstance(mask, Tensor):
+        mask_tensor = mask
+        if mask_tensor.shape != (seq_len, seq_len):
+            raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_tensor.shape}")
+        mask_arr = Tensor._asarray(mask_tensor.data).reshape(mask_tensor.shape)
+    else:
+        mask_arr = np.asarray(mask, dtype=np_backend.dtype)
+        if mask_arr.shape != (seq_len, seq_len):
+            raise ValueError(f"mask must be ({seq_len}, {seq_len}), got {mask_arr.shape}")
 
     q_arr = Tensor._asarray(Q.data).reshape(q_shape)
     k_arr = Tensor._asarray(K.data).reshape(q_shape)
@@ -199,18 +137,76 @@ class MultiHeadAttention(Module):
         self.W_o = Dense(d_model, d_model)
         self.scale = float(self.d_k) ** 0.5
 
+    @staticmethod
+    def _split_heads(tensor, batch, seq_len, num_heads, d_k):
+        """(batch, seq, d_model) -> (batch * num_heads, seq, d_k)."""
+        expected = (batch, seq_len, num_heads * d_k)
+        if tensor.shape != expected:
+            raise ValueError(f"Expected shape {expected}, got {tensor.shape}")
+
+        shape_4d = (batch, seq_len, num_heads, d_k)
+        arr = Tensor._asarray(tensor.data).reshape(shape_4d)
+        out_arr = np.transpose(arr, (0, 2, 1, 3))
+        out_shape = (batch * num_heads, seq_len, d_k)
+        out = Tensor(
+            out_arr.ravel(),
+            out_shape,
+            requires_grad=tensor.requires_grad,
+            _children=(tensor,),
+            _op="split_heads",
+        )
+
+        def _backward():
+            if out.grad is None or not tensor.requires_grad:
+                return
+            grad_out = _grad_out(out, (batch, num_heads, seq_len, d_k))
+            grad_in = np.transpose(grad_out, (0, 2, 1, 3))
+            tensor._accumulate_grad(grad_in.ravel())
+
+        out._backward = _backward
+        return out
+
+    @staticmethod
+    def _merge_heads(tensor, batch, seq_len, num_heads, d_k):
+        """(batch * num_heads, seq, d_k) -> (batch, seq, d_model)."""
+        expected = (batch * num_heads, seq_len, d_k)
+        if tensor.shape != expected:
+            raise ValueError(f"Expected shape {expected}, got {tensor.shape}")
+
+        shape_4d = (batch, num_heads, seq_len, d_k)
+        arr = Tensor._asarray(tensor.data).reshape(shape_4d)
+        out_arr = np.transpose(arr, (0, 2, 1, 3))
+        out_shape = (batch, seq_len, num_heads * d_k)
+        out = Tensor(
+            out_arr.ravel(),
+            out_shape,
+            requires_grad=tensor.requires_grad,
+            _children=(tensor,),
+            _op="merge_heads",
+        )
+
+        def _backward():
+            if out.grad is None or not tensor.requires_grad:
+                return
+            grad_out = _grad_out(out, (batch, seq_len, num_heads, d_k))
+            grad_in = np.transpose(grad_out, (0, 2, 1, 3))
+            tensor._accumulate_grad(grad_in.ravel())
+
+        out._backward = _backward
+        return out
+
     def forward(self, x, mask=None):
         """Public function forward."""
         batch, seq_len, d_model = x.shape
         if d_model != self.d_model:
             raise ValueError(f"Expected d_model {self.d_model}, got {d_model}")
 
-        Q = _split_heads(self.W_q(x), batch, seq_len, self.num_heads, self.d_k)
-        K = _split_heads(self.W_k(x), batch, seq_len, self.num_heads, self.d_k)
-        V = _split_heads(self.W_v(x), batch, seq_len, self.num_heads, self.d_k)
+        Q = self._split_heads(self.W_q(x), batch, seq_len, self.num_heads, self.d_k)
+        K = self._split_heads(self.W_k(x), batch, seq_len, self.num_heads, self.d_k)
+        V = self._split_heads(self.W_v(x), batch, seq_len, self.num_heads, self.d_k)
 
         out = scaled_dot_product_attention(Q, K, V, self.scale, mask=mask)
-        out = _merge_heads(out, batch, seq_len, self.num_heads, self.d_k)
+        out = self._merge_heads(out, batch, seq_len, self.num_heads, self.d_k)
         return self.W_o(out)
 
     def parameters(self):

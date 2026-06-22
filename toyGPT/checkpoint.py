@@ -19,14 +19,13 @@ from toyGPT.fast_tokenizer import FastBPETokenizer
 OptimizerType = Union[Adam, AdamW]
 
 
-def _to_host_array(arr) -> host_np.ndarray:
-    get = getattr(arr, "get", None)
-    if get is not None:
-        arr = get()
-    return host_np.asarray(arr)
-
-
 def save_optimizer(optimizer: OptimizerType, path: Path) -> None:
+    def to_host_array(arr) -> host_np.ndarray:
+        get = getattr(arr, "get", None)
+        if get is not None:
+            arr = get()
+        return host_np.asarray(arr)
+
     state: dict[str, Any] = {
         "t": host_np.array(optimizer.t),
         "lr": host_np.array(optimizer.get_lr()),
@@ -37,8 +36,8 @@ def save_optimizer(optimizer: OptimizerType, path: Path) -> None:
         "optimizer": optimizer.__class__.__name__,
     }
     for i, (m, v) in enumerate(zip(optimizer.m, optimizer.v)):
-        state[f"m_{i}"] = _to_host_array(m)
-        state[f"v_{i}"] = _to_host_array(v)
+        state[f"m_{i}"] = to_host_array(m)
+        state[f"v_{i}"] = to_host_array(v)
     host_np.savez(path, **state)
 
 

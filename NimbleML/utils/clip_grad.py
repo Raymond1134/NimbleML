@@ -4,14 +4,6 @@ import math
 from NimbleML.utils.np_backend import np, dtype
 
 
-def _scalar(value) -> float:
-    if hasattr(value, "get"):
-        value = value.get()
-    if hasattr(value, "item"):
-        return float(value.item())
-    return float(value)
-
-
 def clip_grad_norm_(params, max_norm: float) -> float:
     """Clip the total L2 norm of gradients in-place to at most ``max_norm``.
 
@@ -37,7 +29,13 @@ def clip_grad_norm_(params, max_norm: float) -> float:
         sq = np.dot(flat, flat)
         total_sq = sq if total_sq is None else total_sq + sq
 
-    total_norm = math.sqrt(_scalar(total_sq))
+    if hasattr(total_sq, "get"):
+        total_sq = total_sq.get()
+    if hasattr(total_sq, "item"):
+        total_sq = float(total_sq.item())
+    else:
+        total_sq = float(total_sq)
+    total_norm = math.sqrt(total_sq)
     if total_norm == 0.0 or not math.isfinite(total_norm) or total_norm <= max_norm:
         return total_norm
 

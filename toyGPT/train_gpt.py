@@ -63,6 +63,7 @@ def _eval_loss(model, loss_fn, val_ids, cfg: ToyGPTConfig, rng) -> float:
 
 
 def _cleanup_gpu(using_gpu: bool) -> None:
+    """Reclaim closure cycles and return CuPy pool blocks to the driver."""
     gc.collect()
     if using_gpu:
         import cupy
@@ -195,6 +196,9 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
 
         loss_sum = 0.0
         backward_failed = False
+        micro_t0 = time.perf_counter()
+        if accum > 1:
+            print(f"[accum] step {step + 1}: running {accum} micro-batches ...", flush=True)
         for micro in range(accum):
             inputs, targets = random_batch(
                 train_ids, batch_size=cfg.batch_size, seq_len=cfg.seq_len, rng=rng
@@ -213,6 +217,16 @@ def train(cfg: ToyGPTConfig, *, resume: str | None) -> None:
             del logits, loss, inputs, targets
             model.clear_pos_encoding_cache()
             _cleanup_gpu(using_gpu)
+            if accum > 1 and (
+                cfg.verbose or micro == 0 or micro + 1 == accum or (micro + 1) % max(1, accum // 4) == 0
+            ):
+                micro_elapsed = time.perf_counter() - micro_t0
+                micro_tok = cfg.batch_size * cfg.seq_len * (micro + 1)
+                print(
+                    f"[accum] step {step + 1} micro {micro + 1}/{accum} "
+                    f"tok/s={micro_tok / micro_elapsed:,.0f}",
+                    flush=True,
+                )
 
         if backward_failed:
             optimizer.zero_grad(set_to_none=True)
