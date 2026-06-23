@@ -2,17 +2,16 @@
 
 
 class Optimizer:
-    """Base optimizer with optional per-group learning rates.
+    """Base class for all optimizers.
 
-    ``params`` may be a flat list of tensors or a list of dicts::
+    Supports both flat parameter lists and parameter groups with per-group
+    hyperparameters such as learning rate and weight decay.
 
-        optimizer = Adam(model.parameters(), learning_rate=1e-3)
-        optimizer = Adam([
-            {"params": head_params, "lr": 1e-3},
-            {"params": body_params, "lr": 1e-4},
-        ])
+    Args:
+        params (iterable): Iterable of parameters or parameter groups.
+        learning_rate (float): Default learning rate. Used if no per-group lr is provided.
+        lr (float | None): Optional alias for learning_rate.
     """
-
     def __init__(self, params, *, learning_rate=0.01, lr=None):
         default_lr = lr if lr is not None else learning_rate
         if params and isinstance(params[0], dict):
@@ -32,21 +31,40 @@ class Optimizer:
 
     @property
     def learning_rate(self):
-        """Public function learning_rate."""
+        """Get the learning rate of the first parameter group.
+
+        Returns:
+            float: Current learning rate.
+        """
         return self.param_groups[0]["lr"]
 
     @learning_rate.setter
     def learning_rate(self, value):
-        """Public function learning_rate."""
+        """Set the learning rate for all parameter groups.
+
+        Args:
+            value (float): New learning rate applied to all groups.
+        """
         for group in self.param_groups:
             group["lr"] = value
 
     def get_lr(self):
-        """Current learning rate for each param group."""
+        """Get learning rates for all parameter groups.
+
+        Returns:
+            list[float]: Learning rate per parameter group.
+        """
         return [group["lr"] for group in self.param_groups]
 
     def set_lr(self, lrs):
-        """Set learning rates, one value per param group."""
+        """Set learning rates for all parameter groups.
+
+        Args:
+            lrs (list[float]): One learning rate per parameter group.
+
+        Raises:
+            ValueError: If length does not match number of parameter groups.
+        """
         if len(lrs) != len(self.param_groups):
             raise ValueError(
                 f"expected {len(self.param_groups)} learning rates, got {len(lrs)}"
@@ -55,10 +73,17 @@ class Optimizer:
             group["lr"] = lr
 
     def step(self):
-        """Public function step."""
+        """Perform a single optimization step.
+
+        Must be implemented by subclasses.
+        """
         raise NotImplementedError("Optimizer.step must be implemented by subclasses.")
 
     def zero_grad(self, set_to_none: bool = False):
-        """Clear parameter gradients."""
+        """Reset gradients for all parameters.
+
+        Args:
+            set_to_none (bool): If True, sets gradients to None instead of zero.
+        """
         for param in self.params:
             param.zero_grad(set_to_none=set_to_none)

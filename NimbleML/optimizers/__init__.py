@@ -1,5 +1,3 @@
-"""Package exports and public API surface."""
-
 from .optimizer import Optimizer
 from .nag import NAG
 from .rmsprop import RMSProp

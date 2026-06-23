@@ -51,6 +51,27 @@ def apply_repetition_penalty(scores, input_ids, penalty: float = 1.0):
     return scores
 
 
+def apply_top_p_filter(scaled, top_p: float):
+    """Nucleus (top-p) filter. ``top_p >= 1`` is a no-op."""
+    if top_p >= 1.0:
+        return scaled
+    scaled = np.asarray(scaled, dtype=np.float32)
+    order = np.argsort(scaled)[::-1]
+    sorted_logits = scaled[order] - np.max(scaled[order])
+    probs = np.exp(sorted_logits)
+    total = float(np.sum(probs))
+    if total <= 0 or not np.isfinite(total):
+        return scaled
+    probs /= total
+    cumulative = np.cumsum(probs)
+    remove = order[cumulative - probs > top_p]
+    if remove.size >= scaled.size:
+        remove = remove[:-1]
+    out = scaled.copy()
+    out[remove] = -np.inf
+    return out
+
+
 def sample_text(
     model,
     tokenizer,
@@ -60,6 +81,7 @@ def sample_text(
     max_new_tokens: int,
     temperature: float = 0.8,
     top_k: int = 0,
+    top_p: float = 1.0,
     repetition_penalty: float = 1.0,
     rng: _host_np.random.Generator | None = None,
     include_prompt: bool = True,
@@ -90,6 +112,7 @@ def sample_text(
                 keep = np.full_like(scaled, -np.inf)
                 keep[top_idx] = scaled[top_idx]
                 scaled = keep
+            scaled = apply_top_p_filter(scaled, top_p)
             scaled -= np.max(scaled)
             probs = np.exp(scaled)
             probs /= np.sum(probs)

@@ -1,5 +1,3 @@
-"""Package exports and public API surface."""
-
 from .base import LRScheduler
 from .step_lr import StepLR
 from .linear_warmup import LinearWarmup

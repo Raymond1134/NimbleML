@@ -89,6 +89,8 @@ class ToyGPTConfig:
     eval_batches: int = 20
     sample_chars: int = 200
     temperature: float = 0.8
+    top_p: float = 0.9
+    top_k: int = 0
     repetition_penalty: float = 1.0
     verbose: int = 1
     log_every: int = 1
@@ -142,6 +144,8 @@ class ToyGPTConfig:
             "eval_batches": int(eval_cfg.get("eval_batches", 20)),
             "sample_chars": int(eval_cfg.get("sample_chars", 200)),
             "temperature": float(eval_cfg.get("temperature", 0.8)),
+            "top_p": float(eval_cfg.get("top_p", 0.9)),
+            "top_k": int(eval_cfg.get("top_k", 0)),
             "repetition_penalty": float(eval_cfg.get("repetition_penalty", 1.0)),
             "verbose": int(log_cfg.get("verbose", 1)),
             "log_every": int(log_cfg.get("log_every", 1)),

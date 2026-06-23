@@ -22,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prompt", type=str, default="", help="Text prompt (empty = token 0)")
     parser.add_argument("--chars", type=int, default=0, help="Max new tokens (0 = config sample_chars)")
     parser.add_argument("--temperature", type=float, default=-1.0, help="-1 = config default")
-    parser.add_argument("--top-k", type=int, default=0, help="Top-k sampling (0 = off)")
+    parser.add_argument("--top-p", type=float, default=-1.0, help="-1 = config default; 1.0 = off")
+    parser.add_argument("--top-k", type=int, default=-1, help="-1 = config default; 0 = off")
     parser.add_argument(
         "--repetition-penalty",
         type=float,
@@ -36,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
 
     prompt_ids = tokenizer.encode(args.prompt) if args.prompt.strip() else [0]
     temperature = cfg.temperature if args.temperature < 0 else args.temperature
+    top_p = cfg.top_p if args.top_p < 0 else args.top_p
+    top_k = cfg.top_k if args.top_k < 0 else args.top_k
     max_new = args.chars if args.chars > 0 else cfg.sample_chars
     rep_pen = cfg.repetition_penalty if args.repetition_penalty < 0 else args.repetition_penalty
 
@@ -46,13 +49,14 @@ def main(argv: list[str] | None = None) -> int:
         seq_len=model.max_seq_len,
         max_new_tokens=max_new,
         temperature=temperature,
-        top_k=args.top_k,
+        top_k=top_k,
+        top_p=top_p,
         repetition_penalty=rep_pen,
     )
     print(text)
     print(
         f"\n# ckpt={ckpt_dir.name} step={state.get('step')} temp={temperature} "
-        f"top_k={args.top_k} rep_pen={rep_pen} len={max_new}"
+        f"top_p={top_p} top_k={top_k} rep_pen={rep_pen} len={max_new}"
     )
     return 0
 

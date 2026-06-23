@@ -5,8 +5,7 @@ from ..optimizer import Optimizer
 class LRScheduler:
     """Base class for learning-rate schedulers.
 
-    Subclasses implement ``get_lr()`` returning one rate per optimizer param group;
-    ``step()`` applies those rates via ``optimizer.set_lr()``.
+    A scheduler updates an optimizer's learning rate as training progresses.
     """
 
     def __init__(self, optimizer, last_epoch=-1):
@@ -17,11 +16,23 @@ class LRScheduler:
         self.last_epoch = last_epoch
 
     def get_lr(self):
-        """Public function get_lr."""
+        """Compute the current learning rates.
+
+        Raises:
+            NotImplementedError: Must be implemented by subclasses.
+        """
         raise NotImplementedError
 
     def step(self, epoch=None):
-        """Public function step."""
+        """Advance the scheduler and update optimizer learning rates.
+
+        Args:
+            epoch (int | None): Explicit epoch or step index.
+            If ``None``, advances to the next epoch.
+        
+        Raises:
+            ValueError: If the number of returned learning rates does not match the number of optimizer param groups.
+        """
         if epoch is None:
             self.last_epoch += 1
         else:
