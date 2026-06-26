@@ -1,6 +1,6 @@
 """Cross-entropy loss for 1D, 2D, or 3D sequence logits."""
 import numpy as host_np
-from NimbleML.activations.softmax import softmax_forward
+from NimbleML.kernels.fused_crossentropy import fused_crossentropy_backward, fused_crossentropy_forward
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor, _save_for_backward
@@ -41,10 +41,11 @@ class CrossEntropyLoss:
             ValueError: If logits are not 1D, 2D, or 3D.
         
         Examples:
-            >>> loss = CrossEntropyLoss()
-            >>> logits = Tensor(np.array([0.1, 0.2, 0.3]), shape=(3,), requires_grad=True)
-            >>> labels = Tensor(np.array([0]), shape=(1,), requires_grad=True)
-            >>> print(loss(logits, labels))
+            >>> loss_fn = CrossEntropyLoss()
+            >>> logits = Tensor(np.array([0.1, 0.2, 0.3]), (3,), requires_grad=True)
+            >>> out = loss_fn(logits, 0)
+            >>> out.shape
+            ()
         """
         out_shape = logits.shape
 
@@ -77,10 +78,12 @@ class CrossEntropyLoss:
             label_indices_host = label_indices_host[valid]
 
         flat_batch = int(label_indices_host.size)
-        loss = self._log_softmax_cross_entropy(logits_arr, label_indices_host)
+        loss, _, max_vals, sum_exp = fused_crossentropy_forward(logits_arr, label_indices_host)
         saved_logits = _save_for_backward(
             Tensor._asarray(logits.data).reshape(total_batch, class_count)
         )
+        saved_max = _save_for_backward(max_vals)
+        saved_sum_exp = _save_for_backward(sum_exp)
 
         output = Tensor(
             [loss],
@@ -100,11 +103,20 @@ class CrossEntropyLoss:
             full_logits = saved_logits
             if ignore_index is not None:
                 active_logits = full_logits[valid_mask]
+                active_max = saved_max
+                active_sum_exp = saved_sum_exp
             else:
                 active_logits = full_logits
+                active_max = saved_max
+                active_sum_exp = saved_sum_exp
 
-            grad = self._cross_entropy_logits_grad(active_logits, label_indices_host, flat_batch)
-            grad *= grad_scale
+            grad = fused_crossentropy_backward(
+                grad_scale,
+                active_logits,
+                label_indices_host,
+                active_max,
+                active_sum_exp,
+            )
 
             if ignore_index is not None:
                 full_grad = np.zeros((total_batch, class_count), dtype=np_backend.dtype)
@@ -135,18 +147,3 @@ class CrossEntropyLoss:
                 f"Number of labels ({label_arr.size}) must equal batch size ({batch_size})."
             )
         return label_arr
-
-    def _log_softmax_cross_entropy(self, logits_arr, label_indices):
-        max_vals = np.max(logits_arr, axis=1, keepdims=True)
-        shifted = logits_arr - max_vals
-        log_sum_exp = max_vals.ravel() + np.log(np.sum(np.exp(shifted), axis=1))
-        correct_logits = logits_arr[np.arange(label_indices.size), label_indices]
-        per_sample = log_sum_exp - correct_logits
-        return float(np.sum(per_sample) / label_indices.size)
-
-    def _cross_entropy_logits_grad(self, logits_arr, label_indices, flat_batch):
-        probs = softmax_forward(logits_arr, axis=1)
-        grad = probs.copy()
-        grad[np.arange(flat_batch), label_indices] -= 1.0
-        grad /= flat_batch
-        return grad

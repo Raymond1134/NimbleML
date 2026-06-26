@@ -1,8 +1,8 @@
 """Embedding layer (token ID lookup table)."""
-import numpy as host_np
+from NimbleML.kernels.embedding_scatter import embedding_lookup, embedding_scatter_add
 from NimbleML.neural_network import Module
 from NimbleML.utils import np_backend
-from NimbleML.utils.np_backend import as_int64, np, using_gpu
+from NimbleML.utils.np_backend import as_int64, np
 from NimbleML.utils.tensor import Tensor, _save_for_backward
 
 
@@ -34,9 +34,11 @@ class Embedding(Module):
             ValueError: If the token IDs are out of range [0, vocab_size).
         
         Examples:
-            >>> layer = Embedding(vocab_size=10000, embed_dim=768)
-            >>> inputs = Tensor(np.array([1, 2, 3, 4, 5]), (5,))
+            >>> layer = Embedding(vocab_size=100, embed_dim=8)
+            >>> inputs = Tensor.from_int64([1, 2, 3, 4, 5], (5,))
             >>> output = layer.forward(inputs)
+            >>> output.shape
+            (5, 8)
         """
         if isinstance(inputs, Tensor) and Tensor._is_int64_tensor(inputs):
             ids = np.asarray(inputs.data, dtype=np.int64).reshape(-1)
@@ -45,13 +47,9 @@ class Embedding(Module):
             ids = as_int64(inputs).reshape(-1)
             in_shape = np.asarray(inputs).shape
 
-        if ids.size and (ids.min() < 0 or ids.max() >= self.vocab_size):
-            raise ValueError(f"Token ID out of range [0, {self.vocab_size})")
-
-        save_ids = host_np.asarray(ids.get() if hasattr(ids, "get") else ids, dtype=host_np.int64).copy()
-
         W = Tensor._asarray(self.weights.data).reshape(self.vocab_size, self.embed_dim)
-        out = W[ids]
+        out = embedding_lookup(W, ids)
+        save_ids = np.asarray(ids, dtype=np.int64).reshape(-1).copy()
 
         out_shape = (*in_shape, self.embed_dim)
 
@@ -87,8 +85,10 @@ class Embedding(Module):
             ValueError: If ``seq_len`` is out of range [0, vocab_size).
         
         Examples:
-            >>> layer = Embedding(vocab_size=10000, embed_dim=768)
-            >>> output = layer.forward_prefix(seq_len=1000)
+            >>> layer = Embedding(vocab_size=100, embed_dim=8)
+            >>> output = layer.forward_prefix(seq_len=4)
+            >>> output.shape
+            (4, 8)
         """
         if seq_len < 0 or seq_len > self.vocab_size:
             raise ValueError(f"seq_len must be in [0, {self.vocab_size}), got {seq_len}.")
@@ -122,8 +122,9 @@ class Embedding(Module):
             list[Tensor]: List containing the embedding weight matrix.
         
         Examples:
-            >>> layer = Embedding(vocab_size=10000, embed_dim=768)
-            >>> params = layer.parameters()
+            >>> layer = Embedding(vocab_size=100, embed_dim=8)
+            >>> len(layer.parameters())
+            1
         """
         return [self.weights]
 
@@ -136,17 +137,7 @@ class Embedding(Module):
         if not self.weights.requires_grad or grad_flat is None:
             return
         grad_W = self._ensure_weight_grad()
-        ids_h = host_np.asarray(ids, dtype=host_np.int64).reshape(-1)
-        grad_h = host_np.asarray(
-            grad_flat.get() if hasattr(grad_flat, "get") else grad_flat,
-            dtype=host_np.float32,
-        )
-        if using_gpu:
-            buf = grad_W.get()
-            host_np.add.at(buf, ids_h, grad_h)
-            grad_W[...] = np.asarray(buf, dtype=np_backend.dtype)
-        else:
-            np.add.at(grad_W, ids_h, grad_h)
+        embedding_scatter_add(grad_W, ids, grad_flat)
 
     def _accumulate_prefix_grad(self, seq_len, grad_flat):
         if not self.weights.requires_grad:

@@ -1,6 +1,6 @@
 """Root Mean Square Layer Normalization (RMSNorm)."""
 from math import prod
-
+from NimbleML.kernels.fused_rmsnorm import fused_rmsnorm_backward, fused_rmsnorm_forward
 from NimbleML.neural_network import Module
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
@@ -56,13 +56,12 @@ class RMSNorm(Module):
         x_arr = Tensor._asarray(x.data).reshape(row_count, d)
         g_arr = Tensor._asarray(gamma.data).reshape(d)
 
-        ms = np.mean(x_arr * x_arr, axis=-1, keepdims=True)
-        rms = np.sqrt(ms + epsilon)
-        out_arr = ((x_arr / rms) * g_arr).reshape(in_shape)
+        out_2d, save_x, save_ms, save_rms = fused_rmsnorm_forward(x_arr, g_arr, epsilon)
+        out_arr = out_2d.reshape(in_shape)
 
-        save_x = _save_for_backward(x_arr)
-        save_ms = _save_for_backward(ms)
-        save_rms = _save_for_backward(rms)
+        save_x = _save_for_backward(save_x)
+        save_ms = _save_for_backward(save_ms)
+        save_rms = _save_for_backward(save_rms)
         save_g = _save_for_backward(g_arr)
 
         requires_grad = x.requires_grad or gamma.requires_grad
@@ -79,21 +78,17 @@ class RMSNorm(Module):
                 return
 
             grad_out = _grad_out(out, (row_count, d))
+            grad_x, grad_gamma = fused_rmsnorm_backward(
+                grad_out,
+                save_x,
+                save_g,
+                save_ms,
+                save_rms,
+                epsilon,
+            )
             if gamma.requires_grad:
-                x_hat = save_x / save_rms
-                grad_gamma = np.sum(grad_out * x_hat, axis=0)
                 gamma._accumulate_grad(grad_gamma.ravel())
-
             if x.requires_grad:
-                grad_x_hat = grad_out * save_g
-                grad_ms = np.sum(
-                    grad_x_hat * save_x * (-0.5) * (save_ms + epsilon) ** (-1.5),
-                    axis=-1,
-                    keepdims=True,
-                )
-                grad_x_from_ms = (2.0 / d) * save_x * grad_ms
-                grad_x_direct = grad_x_hat / save_rms
-                grad_x = grad_x_direct + grad_x_from_ms
                 x._accumulate_grad(grad_x.reshape(in_shape).ravel())
 
         out._backward = _backward
