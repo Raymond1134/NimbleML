@@ -53,7 +53,7 @@ class Conv2D(Module):
             raise ValueError(f"Expected {self.in_channels} input channels, got {inputs.shape[1]}.")
 
         x = inputs.data.reshape(inputs.shape)
-        cols, meta = _im2col(x, self.kernel_size, self.stride, self.padding)
+        cols, meta = Conv2D._im2col(x, self.kernel_size, self.stride, self.padding)
         W_flat = self.weights.data.reshape(self.out_channels, -1).T
         out = cols @ W_flat
         out = out.reshape(meta["N"], meta["out_H"], meta["out_W"], self.out_channels)
@@ -92,7 +92,7 @@ class Conv2D(Module):
 
             if inputs.requires_grad:
                 grad_patches = grad_cols @ W_flat.T
-                grad_x = _col2im(grad_patches, meta)
+                grad_x = Conv2D._col2im(grad_patches, meta)
                 inputs._accumulate_grad(grad_x.ravel())
 
         output._backward = _backward

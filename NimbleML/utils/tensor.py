@@ -435,6 +435,7 @@ class Tensor:
         """GELU activation (tanh approximation, GPU-safe)."""
         from NimbleML.activations.gelu import gelu_backward, gelu_forward
 
+        arr = Tensor._asarray(self.data).reshape(self.shape) if self.shape else Tensor._asarray(self.data)
         save_pre = _save_for_backward(arr)
         out_data, tanh_u = gelu_forward(save_pre)
         save_tanh_u = _save_for_backward(tanh_u)
