@@ -35,3 +35,6 @@ include = ["NimbleML*"]
 
 [tool.pytest.ini_options]
 python_files = ["test_*.py", "test.py"]
+markers = [
+    "gpu: requires CUDA GPU and CuPy",
+]

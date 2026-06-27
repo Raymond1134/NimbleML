@@ -65,11 +65,34 @@ Use the MHA vs `raw_attention` ratio to estimate Python autograd overhead. Use `
 
 - `NIMBLEML_DEVICE=auto|cpu|gpu` — array backend (default `gpu` in benchmark scripts)
 - `NIMBLEML_DTYPE=float32` — compute dtype (benchmarks pin float32)
-- PyTorch comparison requires `pip install torch` (optional)
+
+### PyTorch comparison (optional)
+
+The PyPI package is **`torch`**, not `pytorch`. NimbleML and PyTorch must run on the **same device** for the ratio to be meaningful.
+
+**CPU-only** (fair comparison without CUDA):
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+python benchmarks/train_throughput.py --cpu
+```
+
+**GPU (CUDA)** — uninstall the CPU build first, then install the CUDA wheel:
+
+```bash
+pip uninstall torch -y
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+You want a `+cu124` (or similar) version and `True` for CUDA. Pick the CUDA version that matches your driver from [pytorch.org](https://pytorch.org/get-started/locally/).
+
+If NimbleML is on GPU but PyTorch has no CUDA build, `train_throughput.py` skips the PyTorch row and prints a warning instead of a misleading ratio.
 
 ## Interpreting results
 
 - **Train tok/s** is the primary metric; log it after each optimization pass.
+- Each row shows `[gpu]` or `[cpu]` — verify both frameworks match before reading the ratio.
 - **PyTorch / NimbleML ratio** above 1.0 means PyTorch is faster (expected early on).
 - **Peak VRAM** helps catch accidental buffer copies (`_save_for_backward`).
 - **Autograd node count** should drop sharply when fused transformer blocks land (Phase 2).

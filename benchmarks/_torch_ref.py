@@ -1,18 +1,31 @@
 """PyTorch reference GPT for apples-to-apples throughput comparison."""
 from __future__ import annotations
-
 from .config import ReferenceConfig
 
 
-def build_torch_gpt(cfg: ReferenceConfig):
-    """Return helpers dict or None if torch is unavailable."""
+def build_torch_gpt(cfg: ReferenceConfig, *, nimble_on_gpu: bool):
+    """Return helpers dict, None if torch missing, or {"error": ...} on device mismatch."""
     try:
         import torch
         import torch.nn as nn
     except ImportError:
         return None
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if nimble_on_gpu:
+        if not torch.cuda.is_available():
+            return {
+                "error": "device_mismatch",
+                "message": (
+                    "NimbleML is on GPU (CuPy) but PyTorch has no CUDA build. "
+                    "Install CUDA torch (see benchmarks/README.md) or re-run with --cpu "
+                    "for a fair CPU-vs-CPU comparison."
+                ),
+                "torch_version": torch.__version__,
+                "torch_cuda": False,
+            }
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
 
     class _Norm(nn.Module):
         def __init__(self, dim: int):
@@ -80,11 +93,11 @@ def build_torch_gpt(cfg: ReferenceConfig):
         return None
 
     return {
-        "torch": torch,
         "device": device,
         "train_step": train_step,
         "sync": sync,
         "reset_vram": reset_vram,
         "peak_vram_mb": peak_vram_mb,
         "tokens": cfg.tokens_per_step,
+        "torch_version": torch.__version__,
     }

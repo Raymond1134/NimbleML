@@ -62,7 +62,7 @@ class RMSNorm(Module):
         save_x = _save_for_backward(save_x)
         save_ms = _save_for_backward(save_ms)
         save_rms = _save_for_backward(save_rms)
-        save_g = _save_for_backward(g_arr)
+        save_g = _save_for_backward(g_arr, tensor=gamma)
 
         requires_grad = x.requires_grad or gamma.requires_grad
         out = Tensor(

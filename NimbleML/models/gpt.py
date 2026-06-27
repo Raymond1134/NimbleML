@@ -30,6 +30,20 @@ class GPT(Module):
         """Clears cached positional embeddings for all sequence lengths."""
         self._pos_cache.clear()
 
+    def _hidden_states(self, input_ids):
+        """Transformer output before the tied LM head."""
+        if input_ids.ndim != 2:
+            raise ValueError(f"input_ids must be 2D (batch, seq), got shape {input_ids.shape}.")
+
+        batch, seq_len = input_ids.shape
+        if seq_len > self.max_seq_len:
+            raise ValueError(f"Sequence length {seq_len} exceeds maximum sequence length {self.max_seq_len}")
+
+        pos = self._absolute_pos_encoding(seq_len)
+        x = self.token_emb(input_ids) + pos
+        x = self.blocks(x)
+        return self.ln(x)
+
     def forward(self, input_ids):
         """Runs a forward pass of the GPT model.
 
@@ -59,18 +73,26 @@ class GPT(Module):
             >>> input_ids = Tensor(np.array([[1, 2, 3, 4, 5]]), shape=(1, 5), requires_grad=True)
             >>> logits = model(input_ids)
         """
-        if input_ids.ndim != 2:
-            raise ValueError(f"input_ids must be 2D (batch, seq), got shape {input_ids.shape}.")
+        return self._tied_logits(self._hidden_states(input_ids))
 
-        batch, seq_len = input_ids.shape
-        if seq_len > self.max_seq_len:
-            raise ValueError(f"Sequence length {seq_len} exceeds maximum sequence length {self.max_seq_len}")
+    def compute_loss(self, input_ids, labels, ignore_index=None):
+        """Training loss with fused tied CE (no logits Tensor in the graph).
 
-        pos = self._absolute_pos_encoding(seq_len)
-        x = self.token_emb(input_ids) + pos
-        x = self.blocks(x)
-        x = self.ln(x)
+        Prefer this over ``CrossEntropyLoss(model(input_ids), labels)`` during
+        training: it fuses ``hidden @ embedding.T`` with fused cross-entropy so
+        the forward pass never materializes a full softmax probability tensor.
+        """
+        from NimbleML.losses import CrossEntropyLoss
 
+        hidden = self._hidden_states(input_ids)
+        return CrossEntropyLoss().forward_tied(
+            hidden,
+            self.token_emb.weights,
+            labels,
+            ignore_index=ignore_index,
+        )
+
+    def _tied_logits(self, x):
         embedding_weights = self.token_emb.weights
         in_shape = x.shape
         vocab_size, d_model = embedding_weights.shape
@@ -86,7 +108,7 @@ class GPT(Module):
         out2d = np.matmul(x_arr, w_T)
 
         save_x = _save_for_backward(x_arr) if embedding_weights.requires_grad else None
-        save_w = _save_for_backward(w_arr) if x.requires_grad else None
+        save_w = _save_for_backward(w_arr, tensor=embedding_weights) if x.requires_grad else None
 
         out_shape = in_shape[:-1] + (vocab_size,)
         out = Tensor(

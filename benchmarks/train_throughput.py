@@ -102,17 +102,20 @@ def run_nimble(cfg: ReferenceConfig) -> dict:
         cfg=cfg,
         tokens=tokens,
     )
-    result["device"] = device
+    result["device"] = "gpu" if using_gpu else "cpu"
+    result["backend_device"] = device
     result["dtype"] = str(dtype)
+    result["using_gpu"] = using_gpu
     return result
 
 
-def run_torch(cfg: ReferenceConfig) -> dict | None:
-    ref = build_torch_gpt(cfg)
+def run_torch(cfg: ReferenceConfig, *, nimble_on_gpu: bool) -> dict | None:
+    ref = build_torch_gpt(cfg, nimble_on_gpu=nimble_on_gpu)
     if ref is None:
         return None
+    if "error" in ref:
+        return ref
 
-    torch = ref["torch"]
     device = ref["device"]
     train_step = ref["train_step"]
     sync = ref["sync"]
@@ -142,6 +145,7 @@ def run_torch(cfg: ReferenceConfig) -> dict | None:
         "tokens": tokens,
         "tokens_per_sec": tokens / (mean_ms / 1000.0),
         "device": str(device),
+        "torch_version": ref.get("torch_version"),
     }
     vram = peak_vram()
     if vram is not None:
@@ -149,21 +153,40 @@ def run_torch(cfg: ReferenceConfig) -> dict | None:
     return result
 
 
+def _devices_match(nimble: dict, torch_result: dict | None) -> bool:
+    if torch_result is None or "error" in torch_result:
+        return False
+    nimble_on_gpu = bool(nimble.get("using_gpu"))
+    torch_dev = str(torch_result.get("device", "")).lower()
+    torch_on_gpu = "cuda" in torch_dev
+    return nimble_on_gpu == torch_on_gpu
+
+
 def _print_ratio(nimble: dict, torch_result: dict | None) -> None:
     if torch_result is None or "tokens_per_sec" not in nimble:
+        return
+    if "error" in torch_result:
+        print("-" * 96)
+        print(f"WARNING: {torch_result['message']}")
+        if torch_result.get("torch_version"):
+            print(f"  Installed torch: {torch_result['torch_version']} (cuda={torch_result.get('torch_cuda')})")
+        return
+    if not _devices_match(nimble, torch_result):
+        print("-" * 96)
+        print("WARNING: Skipping ratio — NimbleML and PyTorch ran on different devices.")
         return
     ratio = torch_result["tokens_per_sec"] / nimble["tokens_per_sec"]
     print("-" * 96)
     print(
         f"PyTorch / NimbleML train throughput ratio: {ratio:.2f}x "
-        f"(target: close to 1.0x on GPU after Phase 1–3)"
+        f"(1.0x = same speed; >1.0 = PyTorch faster)"
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="GPT train-step throughput benchmark.")
     parser.add_argument("--quick", action="store_true", help="Use smaller QUICK config from benchmarks/config.py.")
-    parser.add_argument("--cpu", action="store_true", help="Force NimbleML CPU backend.")
+    parser.add_argument("--cpu", action="store_true", help="Force CPU backend for both NimbleML and PyTorch.")
     parser.add_argument("--no-torch", action="store_true", help="Skip PyTorch comparison.")
     parser.add_argument("--json", type=str, default="", help="Write results JSON to path.")
     parser.add_argument("--warmup", type=int, default=None)
@@ -171,16 +194,17 @@ def main() -> int:
     args = parser.parse_args()
     cfg = _resolve_config(args.quick, args.warmup, args.runs)
 
-    from NimbleML.utils.np_backend import dtype, using_gpu
+    from NimbleML.utils.np_backend import dtype
 
     nimble = run_nimble(cfg)
-    torch_result = None if args.no_torch else run_torch(cfg)
+    torch_result = None if args.no_torch else run_torch(cfg, nimble_on_gpu=nimble.get("using_gpu", False))
 
-    dev_label = "GPU" if using_gpu else "CPU"
-    print_header("GPT train throughput", cfg, device=dev_label, dtype=str(dtype))
+    print_header("GPT train throughput", cfg, dtype=str(dtype))
     print(format_row(nimble))
-    if torch_result is not None:
+    if torch_result is not None and "error" not in torch_result:
         print(format_row(torch_result))
+    elif torch_result is not None and "error" in torch_result:
+        print("torch_train_step [skipped]     (device mismatch — see warning below)")
     else:
         print("PyTorch comparison skipped (install torch or remove --no-torch).")
     _print_ratio(nimble, torch_result)

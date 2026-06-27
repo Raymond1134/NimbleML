@@ -207,6 +207,65 @@ def test_gpt_tied_weights_no_lm_head():
     assert not any(name.startswith("lm_head") for name in names)
 
 
+def test_gpt_compute_loss_matches_logits_ce():
+    from NimbleML.losses import CrossEntropyLoss
+
+    vocab_size, d_model, num_heads, num_layers, max_seq_len = 40, 24, 4, 2, 8
+    batch, seq_len = 2, 8
+    model = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len)
+    input_ids = Tensor.from_int64(np.tile(np.arange(seq_len, dtype=np.int64), batch), (batch, seq_len))
+    labels = Tensor.from_int64(np.random.randint(0, vocab_size, size=(batch, seq_len), dtype=np.int64).ravel(), (batch, seq_len))
+
+    for param in model.parameters():
+        param.requires_grad = True
+
+    loss_tied = model.compute_loss(input_ids, labels)
+    loss_tied.backward()
+    tied_grads = {name: np.asarray(param.grad).copy() for name, param in named_parameters(model)}
+
+    for param in model.parameters():
+        param.grad = None
+    model.clear_pos_encoding_cache()
+
+    logits = model.forward(input_ids)
+    loss_logits = CrossEntropyLoss()(logits, labels)
+    loss_logits.backward()
+    logits_grads = {name: np.asarray(param.grad).copy() for name, param in named_parameters(model)}
+
+    assert np.isclose(float(loss_tied.data[0]), float(loss_logits.data[0]), rtol=1e-5, atol=1e-5)
+
+    key_params = ("token_emb.weights", "blocks.layers.0.ln1.gamma")
+    for name in key_params:
+        assert tied_grads[name] is not None, name
+        assert logits_grads[name] is not None, name
+        assert np.allclose(tied_grads[name], logits_grads[name], rtol=1e-4, atol=1e-4), name
+
+    for name in tied_grads:
+        tg, lg = tied_grads[name], logits_grads[name]
+        if tg is None and lg is None:
+            continue
+        assert tg is not None and lg is not None, f"{name}: tied={tg is not None}, logits={lg is not None}"
+        assert np.allclose(tg, lg, rtol=1e-4, atol=1e-4), name
+
+
+def test_gpt_tied_ce_avoids_logits_and_softmax_nodes():
+    from NimbleML.utils.autograd_profile import graph_stats
+
+    model = GPT(40, 24, 4, 2, 8)
+    input_ids = Tensor.from_int64(np.arange(16, dtype=np.int64).reshape(2, 8), (2, 8))
+    labels = Tensor.from_int64(np.random.randint(0, 40, size=(2, 8), dtype=np.int64).ravel(), (2, 8))
+
+    loss = model.compute_loss(input_ids, labels)
+    stats = graph_stats(loss)
+    assert "softmax" not in stats["ops"]
+    assert "tied_lm_head" not in stats["ops"]
+    assert stats["ops"].get("tied_cross_entropy", 0) >= 1
+
+    logits = model.forward(input_ids)
+    logits_stats = graph_stats(logits)
+    assert "tied_lm_head" in logits_stats["ops"]
+
+
 def test_gpt_pos_encoding_prefix():
     pos_emb = Embedding(16, 8)
     out = pos_emb.forward_prefix(4)
@@ -244,6 +303,49 @@ def test_cross_entropy_ignore_index():
     grad = np.asarray(logits.grad).reshape(2, 2, 3)
     assert np.allclose(grad[0, 1], np.zeros(3))
     assert np.any(grad != 0)
+
+
+def test_sampled_cross_entropy_matches_full_when_exhaustive():
+    from NimbleML.losses import CrossEntropyLoss, SampledCrossEntropyLoss
+
+    rng = np.random.default_rng(12)
+    vocab, batch = 11, 4
+    logits_data = rng.standard_normal((batch, vocab)).astype(np.float32)
+    labels_data = rng.integers(0, vocab, size=(batch,), dtype=np.int64)
+    negatives = np.stack(
+        [np.array([j for j in range(vocab) if j != int(labels_data[i])], dtype=np.int64) for i in range(batch)]
+    )
+
+    logits_a = Tensor(logits_data.ravel(), (batch, vocab), requires_grad=True)
+    loss_sampled = SampledCrossEntropyLoss()(
+        logits_a,
+        labels_data,
+        num_samples=vocab - 1,
+        negative_indices=negatives,
+    )
+    loss_sampled.backward()
+    grad_sampled = np.asarray(logits_a.grad).reshape(batch, vocab).copy()
+
+    logits_b = Tensor(logits_data.ravel(), (batch, vocab), requires_grad=True)
+    loss_full = CrossEntropyLoss()(logits_b, labels_data)
+    loss_full.backward()
+    grad_full = np.asarray(logits_b.grad).reshape(batch, vocab)
+
+    assert np.isclose(float(loss_sampled.data[0]), float(loss_full.data[0]), rtol=1e-5, atol=1e-5)
+    assert np.allclose(grad_sampled, grad_full, rtol=1e-4, atol=1e-4)
+
+
+def test_save_for_backward_aliases_stable_parameters():
+    from NimbleML.utils.tensor import reset_save_for_backward_stats, save_for_backward_stats
+
+    reset_save_for_backward_stats()
+    weights = Tensor(np.random.randn(4, 8).astype(np.float32).ravel(), (4, 8), requires_grad=True)
+    inputs = Tensor(np.random.randn(8, 2).astype(np.float32).ravel(), (8, 2), requires_grad=True)
+    out = weights.matmul(inputs)
+    out.sum().backward()
+    stats = save_for_backward_stats()
+    assert stats["aliases"] >= 1
+    assert stats["copies"] >= 1
 
 
 def test_mse_loss_forward_backward():
@@ -397,9 +499,13 @@ def main():
     test_feedforward_forward_backward()
     test_gpt_forward_shape()
     test_gpt_tied_weights_no_lm_head()
+    test_gpt_compute_loss_matches_logits_ce()
+    test_gpt_tied_ce_avoids_logits_and_softmax_nodes()
     test_gpt_pos_encoding_prefix()
     test_cross_entropy_3d_forward_backward()
     test_cross_entropy_ignore_index()
+    test_sampled_cross_entropy_matches_full_when_exhaustive()
+    test_save_for_backward_aliases_stable_parameters()
     test_gpt_checkpoint_save_load()
     test_step_lr_scheduler()
     test_clip_grad_norm_enforces_global_cap()

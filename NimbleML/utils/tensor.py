@@ -11,9 +11,49 @@ def _NOOP_BACKWARD():
 
 _EMPTY_PREV = frozenset()
 
+_SAVE_FOR_BACKWARD_STATS = {"copies": 0, "aliases": 0}
 
-def _save_for_backward(arr):
-    """Own-memory copy for autograd closures (avoids stale CuPy pool views)."""
+
+def save_for_backward_stats() -> dict:
+    """Return counts of copy vs alias saves since last reset."""
+    return dict(_SAVE_FOR_BACKWARD_STATS)
+
+
+def reset_save_for_backward_stats() -> None:
+    """Reset :func:`save_for_backward_stats` counters."""
+    _SAVE_FOR_BACKWARD_STATS["copies"] = 0
+    _SAVE_FOR_BACKWARD_STATS["aliases"] = 0
+
+
+def _is_stable_parameter_view(tensor) -> bool:
+    """Leaf parameters (and weight transposes) are safe to alias until ``optimizer.step()``."""
+    if not isinstance(tensor, Tensor):
+        return False
+    if tensor._op == "":
+        return True
+    if tensor._op == "transpose" and len(tensor._prev) == 1:
+        parent = next(iter(tensor._prev))
+        return parent._op == ""
+    return False
+
+
+def _is_stable_matmul_operand(tensor):
+    return _is_stable_parameter_view(tensor)
+
+
+def _save_for_backward(arr, tensor=None):
+    """Own-memory copy for autograd closures (avoids stale CuPy pool views).
+
+    When *tensor* is a stable parameter view, returns a contiguous alias instead
+    of copying — parameter storage is not overwritten until the optimizer step.
+    """
+    if tensor is not None and _is_stable_parameter_view(tensor):
+        _SAVE_FOR_BACKWARD_STATS["aliases"] += 1
+        view = np.asarray(arr)
+        if view.flags.c_contiguous:
+            return view
+        return np.ascontiguousarray(view)
+    _SAVE_FOR_BACKWARD_STATS["copies"] += 1
     return np.asarray(arr).copy()
 
 
@@ -25,16 +65,6 @@ def _grad_out(tensor, shape=None):
     if shape is not None:
         g = g.reshape(shape)
     return _save_for_backward(g)
-
-
-def _is_stable_matmul_operand(tensor):
-    """Parameter tensors (and their transpose) stay valid through backward."""
-    if tensor._op == "":
-        return True
-    if tensor._op == "transpose" and len(tensor._prev) == 1:
-        parent = next(iter(tensor._prev))
-        return parent._op == ""
-    return False
 
 
 def _matmul_right_view(other, right_shape, save_right):
@@ -362,9 +392,9 @@ class Tensor:
         left = np.ascontiguousarray(Tensor._asarray(self.data).reshape(left_shape))
         right = np.ascontiguousarray(Tensor._asarray(other.data).reshape(right_shape))
 
-        save_left = _save_for_backward(left) if other.requires_grad else None
+        save_left = _save_for_backward(left, tensor=self) if other.requires_grad else None
         save_right = (
-            _save_for_backward(right)
+            _save_for_backward(right, tensor=other)
             if self.requires_grad and not _is_stable_matmul_operand(other)
             else None
         )

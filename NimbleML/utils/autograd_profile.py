@@ -1,7 +1,7 @@
 """Autograd graph profiling helpers."""
 from collections import Counter
 
-from NimbleML.utils.tensor import Tensor
+from NimbleML.utils.tensor import Tensor, reset_save_for_backward_stats, save_for_backward_stats
 
 
 def graph_stats(root: Tensor) -> dict:
@@ -31,3 +31,10 @@ def profile_gpt_forward(model, inputs) -> dict:
     stats = graph_stats(logits)
     stats["logits_shape"] = logits.shape
     return stats
+
+
+def profile_save_for_backward(run) -> dict:
+    """Run ``run()`` and return save-for-backward copy vs alias counts."""
+    reset_save_for_backward_stats()
+    run()
+    return save_for_backward_stats()

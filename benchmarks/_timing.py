@@ -68,17 +68,29 @@ def bench(
     return out
 
 
+def _short_device(device) -> str:
+    text = str(device).lower()
+    if "cuda" in text or text == "gpu":
+        return "gpu"
+    if text == "cpu":
+        return "cpu"
+    return text
+
+
 def format_row(result: dict) -> str:
     tps = f"{result['tokens_per_sec']:,.0f}" if "tokens_per_sec" in result else "-"
     vram = f"{result['peak_vram_mb']:.0f} MB" if "peak_vram_mb" in result else "-"
+    dev = _short_device(result.get("device", ""))
+    name = f"{result['name']} [{dev}]" if dev else result["name"]
     return (
-        f"{result['name']:28} {result['mean_ms']:10.3f} {result['p50_ms']:10.3f} "
+        f"{name:28} {result['mean_ms']:10.3f} {result['p50_ms']:10.3f} "
         f"{result['p95_ms']:10.3f} {tps:>12} {vram:>10}"
     )
 
 
-def print_header(title: str, cfg, *, device: str, dtype: str) -> None:
-    print(f"\n{title} ({device}, dtype={dtype})")
+def print_header(title: str, cfg, *, dtype: str, device: str | None = None) -> None:
+    label = f" ({device}, dtype={dtype})" if device else f" (dtype={dtype})"
+    print(f"\n{title}{label}")
     print(
         f"config: vocab={cfg.vocab} d_model={cfg.d_model} layers={cfg.layers} "
         f"heads={cfg.heads} ff_mult={cfg.ff_mult} batch={cfg.batch} seq={cfg.seq} "

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import numpy as host_np
 
-from NimbleML.losses import CrossEntropyLoss
 from NimbleML.models.gpt import GPT
 from NimbleML.optimizers import AdamW
 from NimbleML.utils.clip_grad import clip_grad_norm_
@@ -37,13 +36,11 @@ def zero_grads(params, *, set_to_none: bool = True) -> None:
 
 
 def build_train_step(model: GPT, inputs: Tensor, targets: Tensor, cfg: ReferenceConfig):
-    loss_fn = CrossEntropyLoss()
     opt = AdamW(model.parameters(), learning_rate=cfg.lr, weight_decay=cfg.weight_decay)
 
     def train_step() -> None:
         opt.zero_grad(set_to_none=True)
-        logits = model.forward(inputs)
-        loss = loss_fn(logits, targets)
+        loss = model.compute_loss(inputs, targets)
         loss.backward()
         clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
         opt.step()
