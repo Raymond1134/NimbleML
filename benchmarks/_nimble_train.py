@@ -23,8 +23,22 @@ def make_inputs(cfg: ReferenceConfig) -> tuple[Tensor, Tensor, float]:
     return inputs, targets, cfg.tokens_per_step
 
 
-def make_model(cfg: ReferenceConfig) -> GPT:
-    return GPT(cfg.vocab, cfg.d_model, cfg.heads, cfg.layers, cfg.seq, ff_mult=cfg.ff_mult)
+def make_model(
+    cfg: ReferenceConfig,
+    *,
+    fused_blocks: bool = True,
+    fused_trunk: bool = False,
+) -> GPT:
+    return GPT(
+        cfg.vocab,
+        cfg.d_model,
+        cfg.heads,
+        cfg.layers,
+        cfg.seq,
+        ff_mult=cfg.ff_mult,
+        fused_blocks=fused_blocks,
+        fused_trunk=fused_trunk,
+    )
 
 
 def zero_grads(params, *, set_to_none: bool = True) -> None:

@@ -77,19 +77,22 @@ def _raw_attention_step(np_module, cfg: ReferenceConfig):
     return step
 
 
-def run_suite(cfg: ReferenceConfig) -> tuple[list[dict], dict]:
-    from NimbleML.losses import CrossEntropyLoss
+def run_suite(
+    cfg: ReferenceConfig,
+    *,
+    fused_blocks: bool = True,
+    fused_trunk: bool = False,
+) -> tuple[list[dict], dict, dict | None]:
     from NimbleML.neural_network.attention import MultiHeadAttention
-    from NimbleML.utils.autograd_profile import profile_gpt_forward
+    from NimbleML.utils.autograd_profile import profile_gpt_forward, profile_gpt_train_step
     from NimbleML.utils.mask import causal_mask_tensor
     from NimbleML.utils.np_backend import np, set_dtype, using_gpu
     from NimbleML.utils.tensor import Tensor
 
     set_dtype("float32")
 
-    model = make_model(cfg)
+    model = make_model(cfg, fused_blocks=fused_blocks, fused_trunk=fused_trunk)
     inputs, targets, tokens = make_inputs(cfg)
-    loss_fn = CrossEntropyLoss()
     warmup, runs = cfg.warmup, cfg.runs
 
     pos = model._absolute_pos_encoding(cfg.seq)
@@ -106,8 +109,7 @@ def run_suite(cfg: ReferenceConfig) -> tuple[list[dict], dict]:
 
     def gpt_forward_backward():
         zero_grads(model.parameters())
-        logits = model.forward(inputs)
-        loss = loss_fn(logits, targets)
+        loss = model.compute_loss(inputs, targets)
         loss.backward()
         model.clear_pos_encoding_cache()
 
@@ -149,6 +151,7 @@ def run_suite(cfg: ReferenceConfig) -> tuple[list[dict], dict]:
     ]
 
     graph = profile_gpt_forward(model, inputs)
+    train_graph = profile_gpt_train_step(model, inputs, targets)
     results.append(
         {
             "name": "autograd_nodes_forward",
@@ -158,10 +161,19 @@ def run_suite(cfg: ReferenceConfig) -> tuple[list[dict], dict]:
             "note": "count, not milliseconds",
         }
     )
-    return results, graph
+    results.append(
+        {
+            "name": "autograd_nodes_train",
+            "mean_ms": float(train_graph["nodes"]),
+            "p50_ms": float(train_graph["nodes"]),
+            "p95_ms": float(train_graph["nodes"]),
+            "note": "count, not milliseconds",
+        }
+    )
+    return results, graph, train_graph
 
 
-def _print_overhead_analysis(results: list[dict], graph: dict) -> None:
+def _print_overhead_analysis(results: list[dict], graph: dict, train_graph: dict | None) -> None:
     by_name = {r["name"]: r for r in results}
     raw_ms = by_name["raw_attention"]["mean_ms"]
     mha_ms = by_name["mha_fwd_bwd"]["mean_ms"]
@@ -175,6 +187,9 @@ def _print_overhead_analysis(results: list[dict], graph: dict) -> None:
         print(f"  GPT forward: {by_name['gpt_forward']['tokens_per_sec']:,.0f} tok/s")
     print(f"  GPT forward vs forward+backward: {gpt_fwb / gpt_fwd:.2f}x slower")
     print(f"  Autograd nodes on GPT forward: {int(graph['nodes'])}")
+    if train_graph is not None:
+        print(f"  Autograd nodes on GPT train step: {int(train_graph['nodes'])}")
+        print(f"  Train-step within budget: {train_graph.get('within_budget')}")
     top_ops = list(graph["ops"].items())[:6]
     print("  Top forward ops:")
     for op, count in top_ops:
@@ -187,20 +202,29 @@ def main() -> int:
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--warmup", type=int, default=None)
     parser.add_argument("--runs", type=int, default=None)
+    parser.add_argument("--profile", action="store_true", help="Print detailed train-step graph profile.")
+    parser.add_argument("--no-fused-blocks", action="store_true", help="Use unfused TransformerBlock stack.")
+    parser.add_argument("--fused-trunk", action="store_true", help="Fuse all blocks + final LN into one node.")
     args = parser.parse_args()
     cfg = _resolve_config(args.quick, args.warmup, args.runs)
+    fused_blocks = not args.no_fused_blocks
+    fused_trunk = args.fused_trunk
 
+    from NimbleML.utils.autograd_profile import format_profile_report
     from NimbleML.utils.np_backend import dtype, using_gpu
 
-    results, graph = run_suite(cfg)
+    results, graph, train_graph = run_suite(cfg, fused_blocks=fused_blocks, fused_trunk=fused_trunk)
     dev_label = "GPU" if using_gpu else "CPU"
     print_header("Forward-only / autograd overhead", cfg, device=dev_label, dtype=str(dtype))
     for row in results:
-        if row["name"] == "autograd_nodes_forward":
+        if row["name"].startswith("autograd_nodes"):
             print(f"{row['name']:28} {int(row['mean_ms']):>10} nodes")
         else:
             print(format_row(row))
-    _print_overhead_analysis(results, graph)
+    _print_overhead_analysis(results, graph, train_graph)
+    if args.profile and train_graph is not None:
+        print("-" * 96)
+        print(format_profile_report(train_graph))
     return 0
 
 

@@ -3,6 +3,8 @@ from .module import Module, Sequential, residual
 __all__ = [
     "Attention",
     "FeedForward",
+    "FusedGPTTrunk",
+    "FusedTransformerBlock",
     "Module",
     "MultiHeadAttention",
     "Sequential",
@@ -17,6 +19,8 @@ _LAZY = {
     "MultiHeadAttention": (".attention", "MultiHeadAttention"),
     "make_causal_mask": ("NimbleML.utils.mask", "make_causal_mask"),
     "TransformerBlock": (".transformer", "TransformerBlock"),
+    "FusedTransformerBlock": (".transformer_fused", "FusedTransformerBlock"),
+    "FusedGPTTrunk": (".transformer_fused", "FusedGPTTrunk"),
 }
 
 

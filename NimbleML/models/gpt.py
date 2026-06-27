@@ -3,6 +3,7 @@ from math import prod
 from NimbleML.layers import Embedding, RMSNorm
 from NimbleML.neural_network.module import Module, Sequential
 from NimbleML.neural_network.transformer import TransformerBlock
+from NimbleML.neural_network.transformer_fused import FusedGPTTrunk, FusedTransformerBlock
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 
@@ -10,9 +11,22 @@ from NimbleML.utils.tensor import Tensor, _grad_out, _save_for_backward
 class GPT(Module):
     """Minimal GPT-style autoregressive language model."""
 
-    def __init__(self, vocab_size, d_model, num_heads, num_layers, max_seq_len, ff_mult=4):
+    def __init__(
+        self,
+        vocab_size,
+        d_model,
+        num_heads,
+        num_layers,
+        max_seq_len,
+        ff_mult=4,
+        *,
+        fused_blocks: bool = False,
+        fused_trunk: bool = False,
+    ):
         if d_model % num_heads != 0:
             raise ValueError(f"d_model ({d_model}) must be divisible by num_heads ({num_heads}).")
+        if fused_trunk and not fused_blocks:
+            raise ValueError("fused_trunk requires fused_blocks=True.")
 
         self.vocab_size = vocab_size
         self.d_model = d_model
@@ -20,10 +34,18 @@ class GPT(Module):
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
         self.ff_mult = ff_mult
+        self.fused_blocks = fused_blocks
+        self.fused_trunk = fused_trunk
         self.token_emb = Embedding(vocab_size, d_model)
         self.pos_emb = Embedding(max_seq_len, d_model)
-        self.blocks = Sequential(*[TransformerBlock(d_model, num_heads, ff_mult) for _ in range(num_layers)])
+
+        block_cls = FusedTransformerBlock if fused_blocks else TransformerBlock
+        block_modules = [block_cls(d_model, num_heads, ff_mult) for _ in range(num_layers)]
         self.ln = RMSNorm(d_model)
+        if fused_trunk:
+            self.blocks = FusedGPTTrunk(block_modules, self.ln)
+        else:
+            self.blocks = Sequential(*block_modules)
         self._pos_cache: dict[int, Tensor] = {}
 
     def clear_pos_encoding_cache(self) -> None:
@@ -41,6 +63,8 @@ class GPT(Module):
 
         pos = self._absolute_pos_encoding(seq_len)
         x = self.token_emb(input_ids) + pos
+        if self.fused_trunk:
+            return self.blocks(x)
         x = self.blocks(x)
         return self.ln(x)
 
@@ -145,8 +169,10 @@ class GPT(Module):
             >>> params = model.parameters()
         """
         params = []
-        for layer in (self.token_emb, self.pos_emb, self.blocks, self.ln):
+        for layer in (self.token_emb, self.pos_emb, self.blocks):
             params.extend(layer.parameters())
+        if not self.fused_trunk:
+            params.extend(self.ln.parameters())
         return params
 
     def _absolute_pos_encoding(self, seq_len: int) -> Tensor:

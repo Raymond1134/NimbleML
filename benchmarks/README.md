@@ -34,6 +34,9 @@ python benchmarks/train_throughput.py --quick      # smaller smoke config
 python benchmarks/train_throughput.py --cpu        # force NumPy CPU backend
 python benchmarks/train_throughput.py --no-torch   # NimbleML only
 python benchmarks/train_throughput.py --json out.json
+python benchmarks/train_throughput.py --profile          # autograd node count + budget
+python benchmarks/train_throughput.py --fused-trunk      # single node for blocks + LN
+python benchmarks/train_throughput.py --no-fused-blocks  # unfused reference path
 ```
 
 Reports mean / p50 / p95 wall time, tokens/sec, and peak VRAM (GPU). Compares against a PyTorch reference model with pre-norm causal Transformer blocks, GELU FFN, tied embeddings, AdamW, and grad clipping.
@@ -51,13 +54,18 @@ Isolates where time goes on the forward path and measures autograd overhead:
 | `gpt_embed` | Token + position embedding only |
 | `gpt_blocks` | Embeddings + transformer blocks |
 | `gpt_forward` | Full GPT forward |
-| `gpt_forward_backward` | Full forward + CE backward |
-| `autograd_nodes_forward` | Tensor node count (lower is better) |
+| `gpt_forward_backward` | Full forward + fused tied CE backward |
+| `autograd_nodes_forward` | Tensor node count on logits forward (lower is better) |
+| `autograd_nodes_train` | Tensor node count on `compute_loss` train step |
 
 ```bash
 python benchmarks/forward_only.py
 python benchmarks/forward_only.py --quick --cpu
+python benchmarks/forward_only.py --profile
+python benchmarks/forward_only.py --fused-trunk
 ```
+
+Benchmarks default to **fused transformer blocks** (`fused_blocks=True`). Use `--no-fused-blocks` for the unfused autograd path.
 
 Use the MHA vs `raw_attention` ratio to estimate Python autograd overhead. Use `gpt_blocks` vs `gpt_forward` to see LM-head / norm cost.
 

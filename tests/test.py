@@ -266,6 +266,105 @@ def test_gpt_tied_ce_avoids_logits_and_softmax_nodes():
     assert "tied_lm_head" in logits_stats["ops"]
 
 
+def _copy_module_params(src, dst) -> None:
+    src_map = dict(named_parameters(src))
+    for name, param in named_parameters(dst):
+        param.data[:] = np.asarray(src_map[name].data).copy()
+
+
+def test_fused_transformer_block_matches_unfused():
+    from NimbleML.neural_network.transformer import TransformerBlock
+    from NimbleML.neural_network.transformer_fused import FusedTransformerBlock
+
+    d_model, heads, batch, seq_len = 24, 4, 2, 8
+    rng = np.random.default_rng(7)
+    x = Tensor(
+        rng.standard_normal((batch, seq_len, d_model)).astype(np.float32).ravel(),
+        (batch, seq_len, d_model),
+        requires_grad=True,
+    )
+
+    unfused = TransformerBlock(d_model, heads)
+    fused = FusedTransformerBlock(d_model, heads)
+    for param in unfused.parameters() + fused.parameters():
+        param.requires_grad = True
+    _copy_module_params(unfused, fused)
+
+    out_u = unfused(x)
+    out_f = fused(x)
+    assert np.allclose(np.asarray(out_u.data), np.asarray(out_f.data), rtol=1e-4, atol=1e-4)
+
+    out_u.sum().backward()
+    grads_u = {name: np.asarray(p.grad).copy() for name, p in named_parameters(unfused)}
+    x_grad_u = np.asarray(x.grad).copy()
+    x.grad = None
+    for param in fused.parameters():
+        param.grad = None
+
+    out_f.sum().backward()
+    grads_f = {name: np.asarray(p.grad).copy() for name, p in named_parameters(fused)}
+    x_grad_f = np.asarray(x.grad).copy()
+
+    for name in grads_u:
+        assert np.allclose(grads_u[name], grads_f[name], rtol=1e-3, atol=1e-3), name
+    assert np.allclose(x_grad_u, x_grad_f, rtol=1e-3, atol=1e-3)
+
+
+def test_gpt_fused_blocks_matches_unfused():
+    vocab_size, d_model, num_heads, num_layers, max_seq_len = 40, 24, 4, 2, 8
+    batch, seq_len = 2, 8
+    unfused = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len, fused_blocks=False)
+    fused = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len, fused_blocks=True)
+    _copy_module_params(unfused, fused)
+
+    input_ids = Tensor.from_int64(np.tile(np.arange(seq_len, dtype=np.int64), batch), (batch, seq_len))
+    labels = Tensor.from_int64(
+        np.random.randint(0, vocab_size, size=(batch, seq_len), dtype=np.int64).ravel(),
+        (batch, seq_len),
+    )
+    for param in unfused.parameters() + fused.parameters():
+        param.requires_grad = True
+
+    loss_u = unfused.compute_loss(input_ids, labels)
+    loss_u.backward()
+    grads_u = {name: np.asarray(p.grad).copy() for name, p in named_parameters(unfused)}
+
+    for param in fused.parameters():
+        param.grad = None
+    fused.clear_pos_encoding_cache()
+
+    loss_f = fused.compute_loss(input_ids, labels)
+    loss_f.backward()
+    grads_f = {name: np.asarray(p.grad).copy() for name, p in named_parameters(fused)}
+
+    assert np.isclose(float(loss_u.data[0]), float(loss_f.data[0]), rtol=1e-4, atol=1e-4)
+    for name in grads_u:
+        assert np.allclose(grads_u[name], grads_f[name], rtol=1e-3, atol=1e-3), name
+
+
+def test_gpt_fused_blocks_reduce_train_graph_nodes():
+    from NimbleML.utils.autograd_profile import TRAIN_STEP_NODE_BUDGET, profile_gpt_train_step
+
+    vocab_size, d_model, num_heads, num_layers, max_seq_len = 64, 32, 4, 4, 16
+    input_ids = Tensor.from_int64(np.arange(32, dtype=np.int64).reshape(2, 16), (2, 16))
+    labels = Tensor.from_int64(np.random.randint(0, vocab_size, size=(2, 16), dtype=np.int64).ravel(), (2, 16))
+
+    unfused = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len, fused_blocks=False)
+    fused = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len, fused_blocks=True)
+    trunk = GPT(vocab_size, d_model, num_heads, num_layers, max_seq_len, fused_blocks=True, fused_trunk=True)
+
+    stats_u = profile_gpt_train_step(unfused, input_ids, labels)
+    stats_f = profile_gpt_train_step(fused, input_ids, labels)
+    stats_t = profile_gpt_train_step(trunk, input_ids, labels)
+
+    assert stats_f["nodes"] < stats_u["nodes"] // 2
+    assert stats_f["ops"].get("fused_transformer_block", 0) == num_layers
+    assert stats_t["nodes"] < stats_f["nodes"]
+    assert stats_t["ops"].get("fused_gpt_trunk", 0) == 1
+    assert stats_f["within_budget"]
+    assert stats_t["nodes"] <= TRAIN_STEP_NODE_BUDGET
+
+
 def test_gpt_pos_encoding_prefix():
     pos_emb = Embedding(16, 8)
     out = pos_emb.forward_prefix(4)
@@ -501,6 +600,9 @@ def main():
     test_gpt_tied_weights_no_lm_head()
     test_gpt_compute_loss_matches_logits_ce()
     test_gpt_tied_ce_avoids_logits_and_softmax_nodes()
+    test_fused_transformer_block_matches_unfused()
+    test_gpt_fused_blocks_matches_unfused()
+    test_gpt_fused_blocks_reduce_train_graph_nodes()
     test_gpt_pos_encoding_prefix()
     test_cross_entropy_3d_forward_backward()
     test_cross_entropy_ignore_index()

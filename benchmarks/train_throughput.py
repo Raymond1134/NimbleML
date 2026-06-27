@@ -87,11 +87,11 @@ def _bench_with_vram(name, fn, *, np_module, using_gpu, cfg, tokens):
     return result
 
 
-def run_nimble(cfg: ReferenceConfig) -> dict:
+def run_nimble(cfg: ReferenceConfig, *, fused_blocks: bool = True, fused_trunk: bool = False) -> dict:
     from NimbleML.utils.np_backend import device, dtype, np, set_dtype, using_gpu
 
     set_dtype("float32")
-    model = make_model(cfg)
+    model = make_model(cfg, fused_blocks=fused_blocks, fused_trunk=fused_trunk)
     inputs, targets, tokens = make_inputs(cfg)
     train_step = build_train_step(model, inputs, targets, cfg)
     result = _bench_with_vram(
@@ -106,6 +106,8 @@ def run_nimble(cfg: ReferenceConfig) -> dict:
     result["backend_device"] = device
     result["dtype"] = str(dtype)
     result["using_gpu"] = using_gpu
+    result["fused_blocks"] = fused_blocks
+    result["fused_trunk"] = fused_trunk
     return result
 
 
@@ -183,6 +185,18 @@ def _print_ratio(nimble: dict, torch_result: dict | None) -> None:
     )
 
 
+def _print_profile(cfg: ReferenceConfig, *, fused_blocks: bool, fused_trunk: bool) -> None:
+    from NimbleML.utils.autograd_profile import format_profile_report, profile_gpt_train_step
+    from NimbleML.utils.np_backend import set_dtype
+
+    set_dtype("float32")
+    model = make_model(cfg, fused_blocks=fused_blocks, fused_trunk=fused_trunk)
+    inputs, targets, _ = make_inputs(cfg)
+    stats = profile_gpt_train_step(model, inputs, targets)
+    print("-" * 96)
+    print(format_profile_report(stats))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="GPT train-step throughput benchmark.")
     parser.add_argument("--quick", action="store_true", help="Use smaller QUICK config from benchmarks/config.py.")
@@ -191,12 +205,17 @@ def main() -> int:
     parser.add_argument("--json", type=str, default="", help="Write results JSON to path.")
     parser.add_argument("--warmup", type=int, default=None)
     parser.add_argument("--runs", type=int, default=None)
+    parser.add_argument("--profile", action="store_true", help="Print autograd node count for one train step.")
+    parser.add_argument("--no-fused-blocks", action="store_true", help="Use unfused TransformerBlock stack.")
+    parser.add_argument("--fused-trunk", action="store_true", help="Fuse all blocks + final LN into one node.")
     args = parser.parse_args()
     cfg = _resolve_config(args.quick, args.warmup, args.runs)
+    fused_blocks = not args.no_fused_blocks
+    fused_trunk = args.fused_trunk
 
     from NimbleML.utils.np_backend import dtype
 
-    nimble = run_nimble(cfg)
+    nimble = run_nimble(cfg, fused_blocks=fused_blocks, fused_trunk=fused_trunk)
     torch_result = None if args.no_torch else run_torch(cfg, nimble_on_gpu=nimble.get("using_gpu", False))
 
     print_header("GPT train throughput", cfg, dtype=str(dtype))
@@ -208,6 +227,8 @@ def main() -> int:
     else:
         print("PyTorch comparison skipped (install torch or remove --no-torch).")
     _print_ratio(nimble, torch_result)
+    if args.profile:
+        _print_profile(cfg, fused_blocks=fused_blocks, fused_trunk=fused_trunk)
 
     payload = {"config": cfg.__dict__, "nimble": nimble, "torch": torch_result}
     if args.json:
