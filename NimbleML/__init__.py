@@ -1,5 +1,3 @@
-"""Package exports and public API surface."""
-
 from .utils.tensor import Tensor
 from .utils.np_backend import device, np, set_device, using_gpu
 from .utils.saveload import load, save
