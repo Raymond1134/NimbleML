@@ -1,0 +1,4 @@
+abc
+123!?
+The quick brown fox jumps over the lazy dog.
+NimbleML char-level helpers round-trip this file.

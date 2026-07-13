@@ -1,0 +1,57 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.10",
+  "pybind11>=2.12",
+  "cmake>=3.18",
+  "ninja",
+  "setuptools>=68",
+  "wheel",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "NimbleML"
+version = "0.2.0"
+description = "A lightweight machine learning library for neural networks from scratch."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Raymond Zheng" }]
+dependencies = [
+  "numpy>=1.24",
+  "pybind11>=2.12",
+]
+keywords = ["machine-learning", "deep-learning", "autograd", "neural-network"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+gpu = ["cupy-cuda12x>=12.0"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+modal = ["modal>=1.0"]
+data = ["datasets>=2.18", "tokenizers>=0.15", "huggingface_hub>=0.20"]
+plot = ["matplotlib>=3.8"]
+
+[tool.scikit-build]
+minimum-version = "0.10"
+cmake.source-dir = "native"
+wheel.packages = ["NimbleML"]
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+# Set ON when building with nvcc on PATH (vcvars + CUDA_PATH). Modal image sets this via CMAKE_ARGS.
+NIMBLEML_WITH_CUDA = "OFF"
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "test.py"]
+markers = [
+  "gpu: requires CUDA GPU and CuPy",
+]

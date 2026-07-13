@@ -1,0 +1,97 @@
+"""Base class for optimizers"""
+from NimbleML.utils import np_backend
+
+
+class Optimizer:
+    """Base class for all optimizers.
+
+    Supports both flat parameter lists and parameter groups with per-group
+    hyperparameters such as learning rate and weight decay.
+
+    Args:
+        params (iterable): Iterable of parameters or parameter groups.
+        learning_rate (float): Default learning rate. Used if no per-group lr is provided.
+        lr (float | None): Optional alias for learning_rate.
+    """
+    def __init__(self, params, *, learning_rate=0.01, lr=None):
+        default_lr = lr if lr is not None else learning_rate
+        if params and isinstance(params[0], dict):
+            self.param_groups = []
+            for group in params:
+                if "params" not in group:
+                    raise ValueError("each param group must include 'params'")
+                lr_value = group.get("lr", group.get("learning_rate", default_lr))
+                entry = {"params": list(group["params"]), "lr": lr_value}
+                if "weight_decay" in group:
+                    entry["weight_decay"] = float(group["weight_decay"])
+                self.param_groups.append(entry)
+        else:
+            self.param_groups = [{"params": list(params), "lr": default_lr}]
+
+        self.params = [param for group in self.param_groups for param in group["params"]]
+
+        # Under fp16 compute, parameter gradients accumulate in fp32 buffers:
+        # 64-microbatch accumulation and moment math in fp16 underflow/round
+        # away most of the signal (see optimizers/adam.py module docstring).
+        if np_backend.dtype == np_backend.np.float16:
+            for param in self.params:
+                param._grad_dtype = np_backend.np.float32
+
+    @property
+    def learning_rate(self):
+        """Get the learning rate of the first parameter group.
+
+        Returns:
+            float: Current learning rate.
+        """
+        return self.param_groups[0]["lr"]
+
+    @learning_rate.setter
+    def learning_rate(self, value):
+        """Set the learning rate for all parameter groups.
+
+        Args:
+            value (float): New learning rate applied to all groups.
+        """
+        for group in self.param_groups:
+            group["lr"] = value
+
+    def get_lr(self):
+        """Get learning rates for all parameter groups.
+
+        Returns:
+            list[float]: Learning rate per parameter group.
+        """
+        return [group["lr"] for group in self.param_groups]
+
+    def set_lr(self, lrs):
+        """Set learning rates for all parameter groups.
+
+        Args:
+            lrs (list[float]): One learning rate per parameter group.
+
+        Raises:
+            ValueError: If length does not match number of parameter groups.
+        """
+        if len(lrs) != len(self.param_groups):
+            raise ValueError(
+                f"expected {len(self.param_groups)} learning rates, got {len(lrs)}"
+            )
+        for group, lr in zip(self.param_groups, lrs):
+            group["lr"] = lr
+
+    def step(self):
+        """Perform a single optimization step.
+
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError("Optimizer.step must be implemented by subclasses.")
+
+    def zero_grad(self, set_to_none: bool = False):
+        """Reset gradients for all parameters.
+
+        Args:
+            set_to_none (bool): If True, sets gradients to None instead of zero.
+        """
+        for param in self.params:
+            param.zero_grad(set_to_none=set_to_none)
