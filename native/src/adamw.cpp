@@ -3,7 +3,7 @@
 
 namespace nimbleml {
 
-  void adamw_step_cpu(float* param, float* grad, float* m, float* v, float* scratch, std::size_t n, loat lr,
+  void adamw_step_cpu(float* param, float* grad, float* m, float* v, float* scratch, std::size_t n, float lr,
                       float beta1, float beta2, float bias1, float bias2, float eps, float weight_decay) {
     for (std::size_t i = 0; i < n; ++i) {
       m[i] = beta1 * m[i] + (1.0f - beta1) * grad[i];
@@ -28,7 +28,7 @@ namespace nimbleml {
     const float norm = static_cast<float>(std::sqrt(total));
     if (norm > max_norm && norm > 0.0f) {
       const float scale = max_norm / (norm + 1e-6f);
-      for (std::size_t i = 0; i < n_tensors; ++i) {
+      for (std::size_t t = 0; t < n_tensors; ++t) {
         float* g = grads[t];
         for (std::size_t i = 0; i < sizes[t]; ++i) g[i] *= scale;
       }
