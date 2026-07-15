@@ -10,12 +10,11 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(nimbleml_native, m) {
   m.doc() = "NimbleML native kernels and autograd helpers (required extension)";
-  m.attr("with_cuda") = 
-    #if defined(NIMBLEML_WITH_CUDA)
-      true
-    #else
-      false
-    #endif;
+  #if defined(NIMBLEML_WITH_CUDA)
+    m.attr("with_cuda") = true;
+  #else
+    m.attr("with_cuda") = false;
+  #endif
 
   m.def(
       "gelu_forward",
@@ -224,8 +223,8 @@ PYBIND11_MODULE(nimbleml_native, m) {
         return true;
     #else
         return false;
-    #endif});
-
+    #endif
+  });
 
   #if defined(NIMBLEML_WITH_CUDA)
     // Device-pointer FA API for CuPy: pass contiguous float32 buffer data_ptrs.
