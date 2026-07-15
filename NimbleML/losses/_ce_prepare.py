@@ -1,8 +1,6 @@
 """Shared logits / label preparation for cross-entropy losses."""
 from __future__ import annotations
-
 import numpy as host_np
-
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import as_label_indices, np
 from NimbleML.utils.tensor import Tensor

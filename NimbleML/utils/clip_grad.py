@@ -1,6 +1,5 @@
 """Gradient clipping utilities."""
 import math
-
 from NimbleML.utils.np_backend import np, using_gpu
 
 

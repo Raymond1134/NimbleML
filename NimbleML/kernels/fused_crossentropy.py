@@ -6,7 +6,6 @@ loss ~10), and fp16 ``sum_exp`` loses several bits per row. fp32/fp64 inputs
 keep single-dtype math so finite-difference gradchecks stay exact.
 """
 from __future__ import annotations
-
 from NimbleML._native_loader import native as _native  # noqa: F401  # required
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import as_label_indices, np, on_device

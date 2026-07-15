@@ -1,8 +1,6 @@
 """Embedding gather (forward) and scatter-add (backward)."""
 from __future__ import annotations
-
 import os
-
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np, on_device, using_gpu
 

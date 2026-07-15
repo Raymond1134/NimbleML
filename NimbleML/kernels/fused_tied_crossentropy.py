@@ -24,15 +24,7 @@ def fused_tied_crossentropy_forward(hidden, weights, label_indices):
     return loss, h, w, logits_arr, max_vals, sum_exp
 
 
-def fused_tied_crossentropy_backward(
-    grad_scale,
-    hidden,
-    weights,
-    label_indices,
-    logits,
-    max_vals,
-    sum_exp,
-):
+def fused_tied_crossentropy_backward(grad_scale, hidden, weights, label_indices, logits, max_vals, sum_exp):
     """Gradients w.r.t. hidden and tied weights from fused tied CE.
 
     Args:

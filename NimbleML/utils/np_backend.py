@@ -1,6 +1,5 @@
 """Unified array backend: CuPy when a CUDA device is available, NumPy otherwise."""
 from __future__ import annotations
-
 import os
 from typing import Optional
 

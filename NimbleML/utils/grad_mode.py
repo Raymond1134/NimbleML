@@ -1,6 +1,5 @@
 """Gradient-mode helpers (``no_grad`` / ``enable_grad``)."""
 from __future__ import annotations
-
 from contextlib import contextmanager
 
 _grad_enabled = True

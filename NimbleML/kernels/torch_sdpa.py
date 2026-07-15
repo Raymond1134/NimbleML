@@ -8,7 +8,6 @@ Critical: Q/K/V must be **device-contiguous** for zero-copy DLPack. A host
 fallback here destroys throughput (PCIe round-trips every layer).
 """
 from __future__ import annotations
-
 import os
 import warnings
 

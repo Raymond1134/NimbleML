@@ -1,8 +1,6 @@
 """Mixed precision: Autocast + dynamic-loss-scale GradScaler."""
 from __future__ import annotations
-
 from contextlib import contextmanager
-
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 

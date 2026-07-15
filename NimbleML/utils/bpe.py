@@ -1,9 +1,6 @@
 """Byte-level BPE primitives (NumPy)."""
-
 from __future__ import annotations
-
 from collections import Counter
-
 import numpy as np
 
 BYTE_VOCAB_SIZE = 256

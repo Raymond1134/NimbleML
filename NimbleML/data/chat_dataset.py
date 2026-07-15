@@ -1,6 +1,5 @@
 """Chat / instruction datasets with assistant-only loss masks."""
 from __future__ import annotations
-
 from NimbleML.data.dataset import Dataset, PADDED_LABEL
 from NimbleML.utils.np_backend import np
 

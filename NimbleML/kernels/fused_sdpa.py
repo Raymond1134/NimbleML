@@ -7,9 +7,7 @@ Modes (``NIMBLEML_SDPA``):
   - ``flash`` / ``tiled``: in-repo CUDA FA (memory opt-in; slower than torch SDPA).
 """
 from __future__ import annotations
-
 import os
-
 from NimbleML._native_loader import native as _native
 from NimbleML.utils.axis import normalize_axis
 from NimbleML.utils.np_backend import np, using_gpu

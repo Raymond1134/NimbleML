@@ -1,5 +1,4 @@
 """Axis index normalization for tensor reductions and reshapes."""
-
 from __future__ import annotations
 
 

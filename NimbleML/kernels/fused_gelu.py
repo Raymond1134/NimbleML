@@ -5,7 +5,6 @@ GPU path stays on-device (no host roundtrip). Prefers a single CuPy
 Math matches ``gelu_forward_cpu`` (tanh approximation).
 """
 from __future__ import annotations
-
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np, on_device, using_gpu
 

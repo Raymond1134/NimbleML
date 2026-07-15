@@ -10,7 +10,6 @@ row) when available; otherwise ufuncs. Native CUDA device entrypoints are
 used for fp32 when ``rmsnorm_forward_device`` is present.
 """
 from __future__ import annotations
-
 from NimbleML._native_loader import native as _native  # noqa: F401  # required
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np, on_device, using_gpu

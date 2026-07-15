@@ -6,7 +6,6 @@ dimension pair ``(i, i + half)`` by ``theta_i * position`` — an orthogonal
 rotation, so the inverse (used by backward) is the same map with ``-sin``.
 """
 from __future__ import annotations
-
 from NimbleML.utils.np_backend import np
 
 

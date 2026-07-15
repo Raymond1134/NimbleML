@@ -1,8 +1,6 @@
 """Autoregressive generation with optional KV-cache."""
 from __future__ import annotations
-
 import numpy as host_np
-
 from NimbleML.utils.grad_mode import no_grad
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor

@@ -1,6 +1,5 @@
 """Attention mask helpers."""
 from functools import lru_cache
-
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor

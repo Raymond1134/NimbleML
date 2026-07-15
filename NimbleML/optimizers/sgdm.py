@@ -1,7 +1,6 @@
 """SGD with momentum"""
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
-
 from .optimizer import Optimizer
 
 

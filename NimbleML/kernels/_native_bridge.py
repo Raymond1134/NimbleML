@@ -4,9 +4,7 @@ Only the GELU CPU fast path still routes through here; the other kernels run
 directly on the array backend (see ``NimbleML/kernels/``).
 """
 from __future__ import annotations
-
 import numpy as host_np
-
 from NimbleML._native_loader import native
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np, on_device, using_gpu
