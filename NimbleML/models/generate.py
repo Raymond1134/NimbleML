@@ -6,13 +6,37 @@ from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
 
 
-def _sample_logits(logits_1d, *, temperature: float, top_k: int, top_p: float):
+def _apply_repetition_penalty(logits, token_ids, penalty: float):
+    """HF-style repetition penalty on tokens already in the context."""
+    if penalty == 1.0 or not token_ids:
+        return logits
+    out = logits.copy()
+    for tid in {int(t) for t in token_ids}:
+        if 0 <= tid < out.size:
+            if out[tid] < 0:
+                out[tid] *= penalty
+            else:
+                out[tid] /= penalty
+    return out
+
+
+def _sample_logits(
+    logits_1d,
+    *,
+    temperature: float,
+    top_k: int,
+    top_p: float,
+    token_ids=None,
+    repetition_penalty: float = 1.0,
+):
     """Sample one token id. Runs on host NumPy: the vector is vocab-sized and
     CuPy lacks ``random.choice(p=...)``."""
     get = getattr(logits_1d, "get", None)
     logits = host_np.asarray(
         get() if get is not None else logits_1d, dtype=host_np.float32
     ).reshape(-1)
+    if token_ids:
+        logits = _apply_repetition_penalty(logits, token_ids, repetition_penalty)
     if temperature <= 0:
         return int(host_np.argmax(logits))
     logits = logits / float(temperature)
@@ -44,6 +68,7 @@ def generate(
     top_k: int = 0,
     top_p: float = 0.9,
     eos_id: int | None = None,
+    repetition_penalty: float = 1.0,
     use_kv_cache: bool = True,
 ):
     """Greedy / sampled generation.
@@ -79,7 +104,14 @@ def generate(
 
             logits_arr = np.asarray(logits.data).reshape(logits.shape)
             for b in range(batch):
-                tok = _sample_logits(logits_arr[b, -1], temperature=temperature, top_k=top_k, top_p=top_p)
+                tok = _sample_logits(
+                    logits_arr[b, -1],
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                    token_ids=generated[b],
+                    repetition_penalty=repetition_penalty,
+                )
                 generated[b].append(tok)
             if eos_id is not None and all(generated[b][-1] == eos_id for b in range(batch)):
                 break
