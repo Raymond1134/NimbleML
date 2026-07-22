@@ -10,7 +10,6 @@ from NimbleML.data.dataset import PADDED_LABEL
 @dataclass
 class TrainerState:
     """Simple state snapshot for callbacks and return values."""
-
     epoch: int = 0
     global_step: int = 0
 
