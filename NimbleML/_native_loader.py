@@ -1,6 +1,6 @@
 """Load the required ``nimbleml_native`` extension.
 
-NimbleML does not ship a Python fallback for hot kernels. Build the extension::
+NimbleML does not ship a Python fallback for hot kernels. Build the extension by doing::
 
     pip install -e ".[dev]"
 
