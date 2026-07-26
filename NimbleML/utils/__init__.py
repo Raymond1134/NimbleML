@@ -3,6 +3,7 @@ from .activations import gelu_backward, gelu_forward, softmax_backward, softmax_
 from .axis import normalize_axis, normalize_axes
 from .shape import kernel_dims
 from .clip_grad import clip_grad_norm_
+from .grad_mode import enable_grad, is_grad_enabled, no_grad
 from .np_backend import as_int64, apply_runtime_config, device, get_dtype, np, on_device, set_device, set_dtype, using_gpu
 from .tensor import Tensor
 
@@ -17,6 +18,9 @@ __all__ = [
     "apply_runtime_config",
     "as_int64",
     "on_device",
+    "no_grad",
+    "enable_grad",
+    "is_grad_enabled",
     "clip_grad_norm_",
     "normalize_axis",
     "normalize_axes",

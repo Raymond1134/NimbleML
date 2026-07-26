@@ -1,4 +1,4 @@
-from .module import Module, Sequential, residual
+from .module import Module, ModuleList, Sequential, residual
 
 __all__ = [
     "Attention",
@@ -6,6 +6,7 @@ __all__ = [
     "FusedGPTTrunk",
     "FusedTransformerBlock",
     "Module",
+    "ModuleList",
     "MultiHeadAttention",
     "Sequential",
     "TransformerBlock",

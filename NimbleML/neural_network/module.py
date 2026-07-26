@@ -13,6 +13,11 @@ class Module:
     def parameters(self):
         """Return all learnable parameters in this module (and children)."""
         return []
+    
+    def zero_grad(self, set_to_none: bool = False):
+        """Clear gradients on all parameters of this module."""
+        for param in self.parameters():
+            param.zero_grad(set_to_none=set_to_none)
 
     def _child_modules(self):
         """Yield direct child :class:`Module` instances."""
@@ -40,6 +45,52 @@ class Module:
 
     def __call__(self, x):
         return self.forward(x)
+
+
+class ModuleList(Module):
+    """Ordered list of modules (like ``nn.ModuleList``).
+
+    Registers children for ``train`` / ``eval`` / ``parameters`` without
+    applying them sequentially (use :class:`Sequential` for that).
+    """
+
+    def __init__(self, modules=None):
+        self.modules = list(modules) if modules is not None else []
+
+    def __iter__(self):
+        return iter(self.modules)
+
+    def __len__(self):
+        return len(self.modules)
+
+    def __getitem__(self, index):
+        return self.modules[index]
+
+    def __setitem__(self, index, module):
+        self.modules[index] = module
+
+    def append(self, module):
+        self.modules.append(module)
+
+    def extend(self, modules):
+        self.modules.extend(modules)
+
+    def _child_modules(self):
+        for module in self.modules:
+            if isinstance(module, Module):
+                yield module
+
+    def parameters(self):
+        params = []
+        for module in self.modules:
+            if hasattr(module, "parameters"):
+                params.extend(module.parameters())
+        return params
+
+    def forward(self, x):
+        raise NotImplementedError(
+            "ModuleList is a container only; iterate modules or use Sequential."
+        )
 
 
 class Sequential(Module):

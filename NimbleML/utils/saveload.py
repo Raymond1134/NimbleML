@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 import numpy as host_np
-from NimbleML.neural_network.module import Module, Sequential
+from NimbleML.neural_network.module import Module, ModuleList, Sequential
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor
@@ -18,6 +18,12 @@ def named_parameters(module, prefix=""):
     if isinstance(module, Sequential):
         for i, layer in enumerate(module.layers):
             child_prefix = f"{prefix}.layers.{i}" if prefix else f"layers.{i}"
+            yield from named_parameters(layer, child_prefix)
+        return
+
+    if isinstance(module, ModuleList):
+        for i, layer in enumerate(module.modules):
+            child_prefix = f"{prefix}.modules.{i}" if prefix else f"modules.{i}"
             yield from named_parameters(layer, child_prefix)
         return
 

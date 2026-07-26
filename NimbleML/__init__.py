@@ -1,10 +1,11 @@
 from .utils.tensor import Tensor
 from .utils.np_backend import device, np, set_device, using_gpu
+from .utils.grad_mode import enable_grad, is_grad_enabled, no_grad
 from .utils.saveload import load, load_checkpoint, save, save_checkpoint
 from .utils.clip_grad import clip_grad_norm_
 from .core import eval, forward, parameters, train
 from .layers import Conv2D, Dense, Dropout, Embedding, Flatten, MaxPool2D
-from .neural_network import Module, Sequential
+from .neural_network import Module, ModuleList, Sequential
 from .activations import Relu, Softmax
 from .losses import CrossEntropyLoss, L1Loss, MSELoss
 from .optimizers import Adam, AdamW, NAG, Optimizer, RMSProp, SGD, SGDM
@@ -15,12 +16,18 @@ from .metrics import accuracy_score, mean_absolute_error, mean_squared_error, pr
 # Required native extension — fail fast if not built.
 from ._native_loader import native as _native  # noqa: F401
 
+__version__ = "0.2.0"
+
 __all__ = [
+    "__version__",
     "Tensor",
     "np",
     "device",
     "using_gpu",
     "set_device",
+    "no_grad",
+    "enable_grad",
+    "is_grad_enabled",
     "forward",
     "parameters",
     "train",
@@ -32,6 +39,7 @@ __all__ = [
     "Flatten",
     "MaxPool2D",
     "Module",
+    "ModuleList",
     "Sequential",
     "Relu",
     "Softmax",
