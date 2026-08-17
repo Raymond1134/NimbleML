@@ -29,31 +29,6 @@ class CrossEntropyLoss:
         return self.forward(logits, labels, ignore_index=ignore_index)
 
     def forward(self, logits, labels, ignore_index=None):
-        """Compute the cross-entropy loss.
-
-        Supports classification and sequence modeling logits.
-
-        Args:
-            logits (Tensor): Input logits with shape:
-                - ``(classes,)``
-                - ``(batch_size, classes)``
-                - ``(batch_size, sequence_length, classes)``
-            labels: Target class indices.
-            ignore_index (int, optional): Label value to ignore when computing the loss and gradients.
-
-        Returns:
-            Tensor: Scalar loss tensor.
-
-        Raises:
-            ValueError: If logits are not 1D, 2D, or 3D.
-        
-        Examples:
-            >>> loss_fn = CrossEntropyLoss()
-            >>> logits = Tensor(np.array([0.1, 0.2, 0.3]), (3,), requires_grad=True)
-            >>> out = loss_fn(logits, 0)
-            >>> out.shape
-            ()
-        """
         logits_arr, total_batch, class_count, out_shape = flatten_logits(logits)
         label_indices = labels_to_device(labels, total_batch)
         logits_arr, label_indices, valid_mask, empty = filter_ignore_index(
@@ -72,7 +47,7 @@ class CrossEntropyLoss:
         saved_labels = label_indices
 
         output = Tensor(
-            [loss],
+            np.asarray(loss).reshape(-1),
             (),
             requires_grad=logits.requires_grad,
             _children=(logits,),
@@ -149,14 +124,14 @@ class CrossEntropyLoss:
 
         save_h = _save_for_backward(save_h)
         save_w = _save_for_backward(save_w, tensor=embedding_weights)
-        save_logits = _save_for_backward(saved_logits)
-        saved_max = _save_for_backward(max_vals)
-        saved_sum_exp = _save_for_backward(sum_exp)
+        save_logits = None if saved_logits is None else _save_for_backward(saved_logits)
+        saved_max = None if max_vals is None else _save_for_backward(max_vals)
+        saved_sum_exp = None if sum_exp is None else _save_for_backward(sum_exp)
         # Capture labels for backward (device or host ndarray).
         saved_labels = label_indices
 
         output = Tensor(
-            [loss],
+            np.asarray(loss).reshape(-1),
             (),
             requires_grad=hidden.requires_grad or embedding_weights.requires_grad,
             _children=(hidden, embedding_weights),

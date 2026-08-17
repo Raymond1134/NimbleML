@@ -30,24 +30,6 @@ class Conv2D(Module):
         self.biases = Tensor(np.zeros(out_channels), (out_channels,), requires_grad=True) if bias else None
 
     def forward(self, inputs):
-        """Applies a 2D convolution to the input tensor.
-
-        Args:
-            inputs (Tensor): Input tensor of shape (N, C, H, W).
-
-        Returns:
-            Tensor: Output tensor of shape
-                (N, out_channels, H_out, W_out).
-
-        Raises:
-            ValueError: If the input tensor is not of shape (N, C, H, W).
-            ValueError: If the input channels do not match the expected number of channels.
-        
-        Examples:
-            >>> layer = Conv2D(in_channels=3, out_channels=16, kernel_size=3)
-            >>> inputs = Tensor(np.random.randn(1, 3, 28, 28), (1, 3, 28, 28))
-            >>> output = layer.forward(inputs)
-        """
         if inputs.ndim != 4:
             raise ValueError("Conv2D expects (N, C, H, W).")
         if inputs.shape[1] != self.in_channels:

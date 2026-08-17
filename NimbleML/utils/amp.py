@@ -72,9 +72,11 @@ class GradScaler:
     def scale_loss(self, loss):
         return loss * self.scale
 
+    def unscale_factor(self) -> float:
+        return 1.0 / self.scale
+
     def unscale_(self, params) -> None:
-        """Divide grads by the current scale in place (no allocation)."""
-        inv = 1.0 / self.scale
+        inv = self.unscale_factor()
         for p in params:
             g = getattr(p, "grad", None)
             if g is None:

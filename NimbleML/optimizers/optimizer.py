@@ -3,16 +3,7 @@ from NimbleML.utils import np_backend
 
 
 class Optimizer:
-    """Base class for all optimizers.
-
-    Supports both flat parameter lists and parameter groups with per-group
-    hyperparameters such as learning rate and weight decay.
-
-    Args:
-        params (iterable): Iterable of parameters or parameter groups.
-        learning_rate (float): Default learning rate. Used if no per-group lr is provided.
-        lr (float | None): Optional alias for learning_rate.
-    """
+    """Base class for all optimizers. Supports flat params or param groups."""
     def __init__(self, params, *, learning_rate=0.01, lr=None):
         default_lr = lr if lr is not None else learning_rate
         if params and isinstance(params[0], dict):
@@ -39,40 +30,17 @@ class Optimizer:
 
     @property
     def learning_rate(self):
-        """Get the learning rate of the first parameter group.
-
-        Returns:
-            float: Current learning rate.
-        """
         return self.param_groups[0]["lr"]
 
     @learning_rate.setter
     def learning_rate(self, value):
-        """Set the learning rate for all parameter groups.
-
-        Args:
-            value (float): New learning rate applied to all groups.
-        """
         for group in self.param_groups:
             group["lr"] = value
 
     def get_lr(self):
-        """Get learning rates for all parameter groups.
-
-        Returns:
-            list[float]: Learning rate per parameter group.
-        """
         return [group["lr"] for group in self.param_groups]
 
     def set_lr(self, lrs):
-        """Set learning rates for all parameter groups.
-
-        Args:
-            lrs (list[float]): One learning rate per parameter group.
-
-        Raises:
-            ValueError: If length does not match number of parameter groups.
-        """
         if len(lrs) != len(self.param_groups):
             raise ValueError(
                 f"expected {len(self.param_groups)} learning rates, got {len(lrs)}"
@@ -81,17 +49,17 @@ class Optimizer:
             group["lr"] = lr
 
     def step(self):
-        """Perform a single optimization step.
-
-        Must be implemented by subclasses.
-        """
         raise NotImplementedError("Optimizer.step must be implemented by subclasses.")
 
-    def zero_grad(self, set_to_none: bool = False):
-        """Reset gradients for all parameters.
+    @staticmethod
+    def _notify_weights_updated():
+        try:
+            from NimbleML.neural_network._fused_arrays import mark_weights_updated
 
-        Args:
-            set_to_none (bool): If True, sets gradients to None instead of zero.
-        """
+            mark_weights_updated()
+        except Exception:
+            pass
+
+    def zero_grad(self, set_to_none: bool = False):
         for param in self.params:
             param.zero_grad(set_to_none=set_to_none)

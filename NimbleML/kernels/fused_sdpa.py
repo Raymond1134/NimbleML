@@ -9,24 +9,14 @@ Modes (``NIMBLEML_SDPA``):
 from __future__ import annotations
 import os
 from NimbleML._native_loader import native as _native
-from NimbleML.utils.axis import normalize_axis
 from NimbleML.utils.np_backend import np, using_gpu
+from NimbleML.utils.softmax import softmax_backward, softmax_forward
 
 _SDPA_MODE = os.environ.get("NIMBLEML_SDPA", "auto").strip().lower()
 _TILE = int(os.environ.get("NIMBLEML_SDPA_TILE", "128"))
 
-
-def _softmax_forward(arr, axis: int = -1):
-    axis = normalize_axis(arr.ndim, axis)
-    max_vals = np.max(arr, axis=axis, keepdims=True)
-    exps = np.exp(arr - max_vals)
-    return exps / np.sum(exps, axis=axis, keepdims=True)
-
-
-def _softmax_backward(grad_out, probs, axis: int = -1):
-    axis = normalize_axis(probs.ndim, axis)
-    dot = np.sum(grad_out * probs, axis=axis, keepdims=True)
-    return probs * (grad_out - dot)
+_softmax_forward = softmax_forward
+_softmax_backward = softmax_backward
 
 
 def _native_fa_available() -> bool:
@@ -253,19 +243,19 @@ def _flash_causal_backward(grad_out, q, k, v, meta):
 _TORCH_FALLBACK_WARNED = False
 
 
-def fused_sdpa_forward(q, k, v, scale, mask_arr=None, *, batch=None, num_heads=None):
+def fused_sdpa_forward(q, k, v, scale, mask_arr=None, *, batch=None, num_heads=None, leaves_owner=None):
     """Returns ``(out, ctx)`` where ``ctx`` is probs ndarray or flash/torch meta dict."""
     seq = int(q.shape[-2])
     causal = mask_arr is not None
 
-    # Prefer PyTorch fused SDPA (FlashAttention / mem-efficient) when available.
     if causal and using_gpu:
         from NimbleML.kernels.torch_sdpa import _want_torch_sdpa, torch_sdpa_forward
 
         if _want_torch_sdpa():
             try:
                 return torch_sdpa_forward(
-                    q, k, v, scale, causal=True, batch=batch, num_heads=num_heads
+                    q, k, v, scale, causal=True, batch=batch, num_heads=num_heads,
+                    leaves_owner=leaves_owner,
                 )
             except Exception as exc:
                 # Strict mode: surface the error so we never silently run dense S×S.

@@ -77,22 +77,11 @@ class FusedTransformerBlock(Module):
 
         out._backward = _backward
 
-        # Checkpointing: drop the forward ctx now and return pooled CuPy blocks to
-        # the driver. Without free_all_blocks(), each layer's attention matrix
-        # stays reserved in the pool and a 16-layer stack OOMs an 80 GB card.
         if checkpoint:
             del ctx
-            try:
-                from NimbleML.utils.np_backend import using_gpu
-
-                if using_gpu:
-                    import cupy as cp
-
-                    cp.get_default_memory_pool().free_all_blocks()
-            except Exception:
-                pass
 
         return out
+
     def parameters(self):
         params = []
         for layer in (self.ln1, self.mha, self.ln2, self.ffn):

@@ -25,8 +25,7 @@ python -m pip install -e ".[gpu,dev]"    # both
 
 CUDA device FlashAttention + kernels: set `NIMBLEML_WITH_CUDA=ON` in `[tool.scikit-build.cmake.define]` (needs `nvcc`). Include Ada (`89`) in `CUDAARCHS` for L40S.
 
-Chatbot recipe: [examples/chatbot/README.md](examples/chatbot/README.md).  
-Performance stack: [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+Chatbot recipe: [examples/chatbot/README.md](examples/chatbot/README.md).
 
 ## Quick start
 
@@ -105,8 +104,6 @@ load_checkpoint("ckpt.npz", model, optimizer, scheduler)
 | `NIMBLEML_SDPA` | `auto`, `matmul`, `flash` | `auto` |
 | `NIMBLEML_WITH_CUDA` | `ON` / off | off (build flag) |
 | `CUPY_TF32` | `1` / `0` | unset |
-
-See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the full list.
 
 ## API overview
 

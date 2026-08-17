@@ -1,15 +1,13 @@
-"""Adam and AdamW optimizers with mixed-precision-safe state.
+"""Adam and AdamW with mixed-precision-safe state.
 
-Moment buffers (and fp32 master weights for reduced-precision params) are kept
-in float32 regardless of the compute dtype: in fp16, ``v = (1 - beta2) * g^2``
-underflows to zero for typical gradients and ``epsilon = 1e-8`` is not
-representable, so the very first update divides by zero and poisons the
-weights with inf/NaN. Updates of magnitude ``lr * ~1`` during warmup are also
-below fp16 resolution near typical weight values, so fp16 weights need an
-fp32 master copy to make progress at all.
+Moment buffers (and fp32 master weights for reduced-precision params) stay
+in float32: in fp16, ``v = (1 - beta2) * g^2`` underflows and ``epsilon = 1e-8``
+is not representable. Warmup-sized updates also round away in fp16, so
+reduced-precision params keep an fp32 master copy.
 
-On GPU, parameters that share the same ``(lr, weight_decay)`` are packed into
-one contiguous buffer and updated with a **single** ElementwiseKernel launch.
+GPU updates run in-place per parameter (one ElementwiseKernel each). Packing
+every tensor into one buffer copies hundreds of millions of weights each step.
+Checkpoint layout remains per-parameter ``m[i]``, ``v[i]``, ``master[i]``.
 """
 from NimbleML.utils import np_backend
 from .optimizer import Optimizer
@@ -18,7 +16,6 @@ _fused_adamw_kernel = None
 
 
 def _gpu_adamw_kernel():
-    """One-launch fused AdamW update (CuPy ElementwiseKernel), fp32 math."""
     global _fused_adamw_kernel
     if _fused_adamw_kernel is None:
         import cupy as cp
@@ -44,19 +41,7 @@ def _gpu_adamw_kernel():
 
 
 class Adam(Optimizer):
-    """Adam optimizer.
-
-    Adam adapts the learning rate of each parameter using estimates of the
-    first and second moments of the gradients. Adam does not apply weight
-    decay by default. Use :class:`AdamW` for decoupled weight decay regularization.
-
-    Args:
-        params: Parameters to optimize.
-        learning_rate (float): Learning rate. Defaults to 0.001.
-        beta1 (float): Exponential decay rate for first-moment estimates. Defaults to 0.9.
-        beta2 (float): Exponential decay rate for second-moment estimates. Defaults to 0.999.
-        epsilon (float): Small constant added for numerical stability. Defaults to 1e-8.
-    """
+    """Adam. Use :class:`AdamW` for decoupled weight decay."""
 
     def __init__(self, params, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
         super().__init__(params, learning_rate=learning_rate)
@@ -65,15 +50,11 @@ class Adam(Optimizer):
         self.epsilon = epsilon
         self.weight_decay = 0.0
         np = np_backend.np
-        # State dtype: float64 only when the compute dtype is float64 (keeps
-        # finite-difference gradchecks exact); float32 otherwise — never fp16.
         self._state_dtype = (
             np.float64 if np_backend.dtype == np.float64 else np.float32
         )
         self.m = [np.zeros(p.size, dtype=self._state_dtype) for p in self.params]
         self.v = [np.zeros(p.size, dtype=self._state_dtype) for p in self.params]
-        # fp32 master weights for params stored in a narrower dtype (fp16):
-        # without them, warmup-sized updates round to nothing in fp16.
         self.masters = [
             np.asarray(p.data, dtype=self._state_dtype).reshape(-1).copy()
             if p.data.dtype == np.float16
@@ -83,11 +64,6 @@ class Adam(Optimizer):
         self.t = 0
 
     def step(self):
-        """Perform a single optimization step.
-
-        Updates all parameters with available gradients and advances the internal
-        timestep used for bias correction.
-        """
         self.t += 1
         bias_corr1 = 1.0 - self.beta1 ** self.t
         bias_corr2 = 1.0 - self.beta2 ** self.t
@@ -95,112 +71,23 @@ class Adam(Optimizer):
         for group in self.param_groups:
             lr = group["lr"]
             group_wd = float(group.get("weight_decay", self.weight_decay))
-            group_params = []
             for param in group["params"]:
                 if param.grad is not None:
-                    group_params.append(
-                        (param, self.m[idx], self.v[idx], self.masters[idx])
+                    self._adam_update(
+                        param,
+                        self.m[idx],
+                        self.v[idx],
+                        self.masters[idx],
+                        lr=lr,
+                        beta1=self.beta1,
+                        beta2=self.beta2,
+                        bias_corr1=bias_corr1,
+                        bias_corr2=bias_corr2,
+                        epsilon=self.epsilon,
+                        weight_decay=group_wd,
                     )
                 idx += 1
-            if not group_params:
-                continue
-            if self._packed_gpu_step(
-                group_params,
-                lr=lr,
-                beta1=self.beta1,
-                beta2=self.beta2,
-                bias_corr1=bias_corr1,
-                bias_corr2=bias_corr2,
-                epsilon=self.epsilon,
-                weight_decay=group_wd,
-            ):
-                continue
-            for param, m, v, master in group_params:
-                self._adam_update(
-                    param,
-                    m,
-                    v,
-                    master,
-                    lr=lr,
-                    beta1=self.beta1,
-                    beta2=self.beta2,
-                    bias_corr1=bias_corr1,
-                    bias_corr2=bias_corr2,
-                    epsilon=self.epsilon,
-                    weight_decay=group_wd,
-                )
-
-    def _packed_gpu_step(
-        self,
-        items,
-        *,
-        lr,
-        beta1,
-        beta2,
-        bias_corr1,
-        bias_corr2,
-        epsilon,
-        weight_decay,
-    ) -> bool:
-        """Update many params with one ElementwiseKernel launch. Returns True on success."""
-        if not np_backend.using_gpu or self._state_dtype != np_backend.np.float32:
-            return False
-        if len(items) < 2:
-            return False
-        try:
-            kernel = _gpu_adamw_kernel()
-        except Exception:
-            return False
-
-        np = np_backend.np
-        grads = []
-        ms = []
-        vs = []
-        ws = []
-        meta = []
-        for param, m, v, master in items:
-            if m.dtype != np.float32:
-                return False
-            g = np.asarray(param.grad, dtype=np.float32).reshape(-1)
-            w = master if master is not None else param.data.reshape(-1)
-            if w.dtype != np.float32:
-                return False
-            w = np.ascontiguousarray(w)
-            grads.append(g)
-            ms.append(m)
-            vs.append(v)
-            ws.append(w)
-            meta.append((param, master, m, v, w, int(g.size)))
-
-        g_all = np.concatenate(grads)
-        m_all = np.concatenate(ms)
-        v_all = np.concatenate(vs)
-        w_all = np.concatenate(ws)
-        p_all = np.empty_like(w_all)
-        f = np.float32
-        kernel(
-            g_all, m_all, v_all, w_all,
-            f(lr), f(beta1), f(beta2), f(bias_corr1), f(bias_corr2),
-            f(epsilon), f(weight_decay),
-            m_all, v_all, w_all, p_all,
-        )
-
-        offset = 0
-        for param, master, m, v, w, n in meta:
-            m[...] = m_all[offset : offset + n]
-            v[...] = v_all[offset : offset + n]
-            w_slice = w_all[offset : offset + n]
-            if master is not None:
-                master[...] = w_slice
-                param.data[...] = np.asarray(w_slice, dtype=param.data.dtype).reshape(
-                    param.data.shape
-                )
-            else:
-                # In-place weight buffer may already alias ``w``; write via reshape.
-                flat = param.data.reshape(-1)
-                flat[...] = w_slice
-            offset += n
-        return True
+        self._notify_weights_updated()
 
     @staticmethod
     def _adam_update(
@@ -246,7 +133,6 @@ class Adam(Optimizer):
                     )
                 return
 
-        # Native AdamW on host float32 buffers when on CPU.
         if not np_backend.using_gpu and state_dtype == np.dtype("float32"):
             import numpy as host_np
             from NimbleML._native_loader import native
@@ -272,7 +158,6 @@ class Adam(Optimizer):
                 )
             return
 
-        # Generic backend path (float64 gradchecks, GPU fallback): state-dtype math.
         np.multiply(m, beta1, out=m)
         m += (1.0 - beta1) * g
         np.multiply(v, beta2, out=v)

@@ -139,19 +139,57 @@ def _torch_then_cupy():
             pass
 
 
-def torch_sdpa_forward(q, k, v, scale, *, causal: bool, batch: int | None = None, num_heads: int | None = None):
-    """Run torch SDPA; returns ``(out_cupy, ctx)`` for :func:`torch_sdpa_backward`.
+def _shared_stream() -> bool:
+    from NimbleML.utils.np_backend import gpu_runtime_info
 
-    Prefers 4-D ``(B, H, S, D)`` layout when ``batch`` and ``num_heads`` are given
-    so FlashAttention / mem-efficient kernels dispatch the same way as PyTorch GPT.
-    """
+    return bool(gpu_runtime_info().get("shared_stream"))
+
+
+def _sync_cupy_then_torch():
+    if not _shared_stream():
+        _cupy_then_torch()
+
+
+def _sync_torch_then_cupy():
+    if not _shared_stream():
+        _torch_then_cupy()
+
+
+def _torch_leaves(q, k, v, owner):
+    import torch
+
+    src_q = _cupy_to_torch(q)
+    src_k = _cupy_to_torch(k)
+    src_v = _cupy_to_torch(v)
+    cached = None if owner is None else getattr(owner, "_sdpa_leaves", None)
+    if cached is None or cached[0].shape != src_q.shape or cached[0].dtype != src_q.dtype:
+        tq = src_q.clone().detach().requires_grad_(True)
+        tk = src_k.clone().detach().requires_grad_(True)
+        tv = src_v.clone().detach().requires_grad_(True)
+        if owner is not None:
+            owner._sdpa_leaves = (tq, tk, tv)
+        return tq, tk, tv
+    tq, tk, tv = cached
+    tq.grad = None
+    tk.grad = None
+    tv.grad = None
+    with torch.no_grad():
+        tq.copy_(src_q)
+        tk.copy_(src_k)
+        tv.copy_(src_v)
+    return tq, tk, tv
+
+
+def torch_sdpa_forward(
+    q, k, v, scale, *, causal: bool, batch: int | None = None, num_heads: int | None = None,
+    leaves_owner=None,
+):
     import torch
     import torch.nn.functional as F
 
     _STATS["forward_calls"] += 1
-    _cupy_then_torch()
+    _sync_cupy_then_torch()
 
-    # Inputs arrive as (bh, seq, dk) from the fused MHA path.
     q = _as_contiguous_cupy(q)
     k = _as_contiguous_cupy(k)
     v = _as_contiguous_cupy(v)
@@ -165,31 +203,35 @@ def torch_sdpa_forward(q, k, v, scale, *, causal: bool, batch: int | None = None
     if use_4d:
         b, h = int(batch), int(num_heads)
         s, d = int(q.shape[1]), int(q.shape[2])
-        q4 = q.reshape(b, h, s, d)
-        k4 = k.reshape(b, h, s, d)
-        v4 = v.reshape(b, h, s, d)
-        # clone → Torch-owned leaf (FA-safe); still device-only, unlike host fallback.
-        tq = _cupy_to_torch(q4).clone().detach().requires_grad_(True)
-        tk = _cupy_to_torch(k4).clone().detach().requires_grad_(True)
-        tv = _cupy_to_torch(v4).clone().detach().requires_grad_(True)
+        q_in = q.reshape(b, h, s, d)
+        k_in = k.reshape(b, h, s, d)
+        v_in = v.reshape(b, h, s, d)
     else:
-        tq = _cupy_to_torch(q).clone().detach().requires_grad_(True)
-        tk = _cupy_to_torch(k).clone().detach().requires_grad_(True)
-        tv = _cupy_to_torch(v).clone().detach().requires_grad_(True)
+        q_in, k_in, v_in = q, k, v
 
-    # NimbleML passes scale=sqrt(dk) and divides; torch ``scale`` multiplies QK^T.
+    tq, tk, tv = _torch_leaves(q_in, k_in, v_in, leaves_owner)
+
     inv_scale = 1.0 / float(scale)
-    with torch.enable_grad():
+    try:
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        sdp_ctx = sdpa_kernel(
+            [SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
+        )
+    except Exception:
+        from contextlib import nullcontext
+
+        sdp_ctx = nullcontext()
+    with sdp_ctx, torch.enable_grad():
         out = F.scaled_dot_product_attention(
             tq, tk, tv, attn_mask=None, dropout_p=0.0, is_causal=causal, scale=inv_scale
         )
 
     _STATS["backend"] = "torch_sdpa"
-    _torch_then_cupy()
+    _sync_torch_then_cupy()
 
     out_cp = _torch_to_cupy(out)
     if use_4d:
-        # Back to (bh, seq, dk) for the fused MHA merge path.
         out_cp = out_cp.reshape(q.shape)
 
     if out_cp.dtype != q.dtype:
@@ -209,7 +251,7 @@ def torch_sdpa_forward(q, k, v, scale, *, causal: bool, batch: int | None = None
 
 
 def torch_sdpa_backward(grad_out, ctx):
-    _cupy_then_torch()
+    _sync_cupy_then_torch()
     go = _as_contiguous_cupy(grad_out)
     if ctx.get("use_4d"):
         t = ctx["out"]
@@ -219,7 +261,7 @@ def torch_sdpa_backward(grad_out, ctx):
     if t_go.dtype != ctx["out"].dtype:
         t_go = t_go.to(dtype=ctx["out"].dtype)
     ctx["out"].backward(t_go)
-    _torch_then_cupy()
+    _sync_torch_then_cupy()
     gq = _torch_to_cupy(ctx["tq"].grad)
     gk = _torch_to_cupy(ctx["tk"].grad)
     gv = _torch_to_cupy(ctx["tv"].grad)

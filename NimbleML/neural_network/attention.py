@@ -14,31 +14,6 @@ class Attention(Module):
         self.scale = float(d_k) ** 0.5
 
     def forward(self, Q, K, V, mask=None):
-        """Applies scaled dot-product attention.
-
-        Args:
-            Q (Tensor): Query tensor (batch, seq, d_k).
-            K (Tensor): Key tensor (batch, seq, d_k).
-            V (Tensor): Value tensor (batch, seq, d_k).
-            mask (array-like or Tensor, optional): Attention mask.
-
-        Returns:
-            Tensor: Output tensor (batch, seq, d_k).
-        
-        Raises:
-            ValueError:
-                - If Q, K, V are not 3D.
-                - If Q, K, V shapes do not match.
-                - If Q.shape[-1] != d_k.
-        
-        Examples:
-            >>> attention = Attention(d_k=128)
-            >>> Q = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3, 128), requires_grad=True)
-            >>> K = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3, 128), requires_grad=True)
-            >>> V = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3, 128), requires_grad=True)
-            >>> mask = Tensor(np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]), shape=(2, 3), requires_grad=True)
-            >>> output = attention(Q, K, V, mask)
-        """
         if Q.ndim != 3 or K.ndim != 3 or V.ndim != 3:
             raise ValueError(
                 f"Expected 3 dimensions, got {Q.ndim} for Q, {K.ndim} for K, {V.ndim} for V"
@@ -53,7 +28,6 @@ class Attention(Module):
         return self._scaled_dot_product_attention(Q, K, V, self.scale, mask=mask)
 
     def parameters(self):
-        """Returns learnable parameters (none for this module)."""
         return []
 
     @staticmethod
@@ -137,24 +111,6 @@ class MultiHeadAttention(Module):
         self._rope_cache = None
 
     def forward(self, x, mask=None):
-        """Applies multi-head self-attention.
-
-        Args:
-            x (Tensor): Input tensor of shape (batch, seq, d_model).
-            mask (array-like or Tensor, optional): Attention mask.
-
-        Returns:
-            Tensor: Output tensor of shape (batch, seq, d_model).
-        
-        Raises:
-            ValueError: If d_model does not match the expected value.
-        
-        Examples:
-            >>> attention = MultiHeadAttention(d_model=768, num_heads=12)
-            >>> x = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3, 768), requires_grad=True)
-            >>> mask = Tensor(np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]), shape=(2, 3), requires_grad=True)
-            >>> output = attention(x, mask)
-        """
         batch, seq_len, d_model = x.shape
         if d_model != self.d_model:
             raise ValueError(f"Expected d_model {self.d_model}, got {d_model}")
@@ -168,7 +124,6 @@ class MultiHeadAttention(Module):
         return self.W_o(out)
 
     def parameters(self):
-        """Returns all learnable parameters in projection layers."""
         params = []
         for layer in (self.W_q, self.W_k, self.W_v, self.W_o):
             params.extend(layer.parameters())

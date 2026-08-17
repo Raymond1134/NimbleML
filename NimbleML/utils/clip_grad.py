@@ -2,20 +2,20 @@
 import math
 from NimbleML.utils.np_backend import np, using_gpu
 
+_PACK_MAX = 65536
 
-def clip_grad_norm_(params, max_norm: float) -> float:
+
+def clip_grad_norm_(params, max_norm: float, *, unscale: float = 1.0) -> float:
     """Clip the total L2 norm of gradients in-place to at most ``max_norm``.
 
-    On GPU, concatenates all grads into one buffer for a single reduction +
-    scale (avoids per-parameter kernel launches / syncs that dominated the
-    train-step profile vs PyTorch).
-
-    Returns the total norm; callers should skip the optimizer step when it is
-    non-finite (overflowed fp16 backward pass).
+    ``unscale`` folds GradScaler unscale into the same pass (multiply grads by
+    this factor, typically ``1 / loss_scale``). Norm is computed in fp32 from
+    the stored buffers; the returned value is the unscaled (true) norm.
     """
     if max_norm <= 0:
         raise ValueError("max_norm must be positive.")
 
+    inv = float(unscale)
     flats = []
     for param in params:
         grad = getattr(param, "grad", None)
@@ -29,49 +29,52 @@ def clip_grad_norm_(params, max_norm: float) -> float:
     if not flats:
         return 0.0
 
-    if using_gpu and len(flats) > 1:
-        return _clip_packed_gpu(flats, max_norm)
+    total_sq = _grad_sum_squares(flats)
+    if hasattr(total_sq, "get"):
+        total_sq = total_sq.get()
+    total_sq = float(total_sq.item() if hasattr(total_sq, "item") else total_sq)
+    stored_norm = math.sqrt(total_sq)
+    true_norm = stored_norm * inv
+    if true_norm == 0.0 or not math.isfinite(true_norm):
+        if inv != 1.0 and math.isfinite(stored_norm) and stored_norm != 0.0:
+            _scale_flats(flats, inv)
+        return true_norm
 
+    clip_scale = 1.0 if true_norm <= max_norm else max_norm / (true_norm + 1e-12)
+    factor = inv * clip_scale
+    if factor != 1.0:
+        _scale_flats(flats, factor)
+    return true_norm
+
+
+def _grad_sum_squares(flats):
+    small = []
     total_sq = None
     for flat in flats:
         work = flat.astype(np.float32, copy=False) if flat.dtype == np.float16 else flat
+        if using_gpu and work.size <= _PACK_MAX:
+            small.append(work)
+            continue
         sq = np.dot(work, work)
         total_sq = sq if total_sq is None else total_sq + sq
+    if small:
+        cat = np.concatenate(small)
+        sq = np.dot(cat, cat)
+        total_sq = sq if total_sq is None else total_sq + sq
+    return total_sq
 
-    if hasattr(total_sq, "get"):
-        total_sq = total_sq.get()
-    total_sq = float(total_sq.item() if hasattr(total_sq, "item") else total_sq)
-    total_norm = math.sqrt(total_sq)
-    if total_norm == 0.0 or not math.isfinite(total_norm) or total_norm <= max_norm:
-        return total_norm
 
-    scale = max_norm / (total_norm + 1e-12)
+def _scale_flats(flats, factor: float) -> None:
     for flat in flats:
-        np.multiply(flat, flat.dtype.type(scale), out=flat)
-    return total_norm
+        np.multiply(flat, flat.dtype.type(factor), out=flat)
 
 
-def _clip_packed_gpu(flats, max_norm: float) -> float:
-    """One concat → one L2 → optional in-place scale for all grads."""
-    # Promote fp16 slices to fp32 for the norm only; scale original buffers.
-    pieces = []
-    for flat in flats:
-        if flat.dtype == np.float16:
-            pieces.append(flat.astype(np.float32, copy=False))
-        else:
-            pieces.append(flat)
-    cat = np.concatenate(pieces)
-    total_sq = np.dot(cat, cat)
-    if hasattr(total_sq, "get"):
-        total_sq = total_sq.get()
-    total_sq = float(total_sq.item() if hasattr(total_sq, "item") else total_sq)
-    total_norm = math.sqrt(total_sq)
-    if total_norm == 0.0 or not math.isfinite(total_norm) or total_norm <= max_norm:
-        return total_norm
+def release_unused_blocks() -> None:
+    if not using_gpu:
+        return
+    try:
+        import cupy as cp
 
-    scale = max_norm / (total_norm + 1e-12)
-    # Scale each original buffer (preserves dtype) — still fewer launches than
-    # per-param norm reductions.
-    for flat in flats:
-        np.multiply(flat, flat.dtype.type(scale), out=flat)
-    return total_norm
+        cp.get_default_memory_pool().free_all_blocks()
+    except Exception:
+        pass

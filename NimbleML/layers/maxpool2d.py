@@ -21,27 +21,6 @@ class MaxPool2D(Module):
         self.stride = stride if stride is not None else kernel_size
 
     def forward(self, inputs):
-        """Applies 2D max pooling.
-
-        For each pooling window, the maximum value is selected and propagated
-        to the output. During backpropagation, gradients are routed only to
-        the elements that produced the maxima.
-
-        Args:
-            inputs (Tensor): Input tensor of shape ``(N, C, H, W)``.
-
-        Returns:
-            Tensor: Pooled output tensor of shape ``(N, C, out_H, out_W)``.
-
-        Raises:
-            ValueError: If the input is not 4-dimensional.
-            ValueError: If the kernel size and stride produce an invalid output shape.
-        
-        Examples:
-            >>> layer = MaxPool2D(kernel_size=2, stride=2)
-            >>> inputs = Tensor(np.random.randn(1, 3, 28, 28), (1, 3, 28, 28))
-            >>> output = layer.forward(inputs)
-        """
         if inputs.ndim != 4:
             raise ValueError("MaxPool2d expects (N, C, H, W).")
 

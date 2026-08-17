@@ -10,12 +10,4 @@ class Relu(Module):
     """
 
     def forward(self, inputs):
-        """Applies the ReLU activation function.
-
-        Args:
-            inputs (Tensor): Input tensor.
-
-        Returns:
-            Tensor: Output tensor with ReLU applied element-wise.
-        """
         return inputs.relu()

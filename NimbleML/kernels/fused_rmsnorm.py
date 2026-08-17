@@ -97,6 +97,98 @@ def _cupy_rmsnorm_kernels():
     return _rmsnorm_fwd_raw, _rmsnorm_bwd_raw
 
 
+_rmsnorm_fwd_f16 = None
+_rmsnorm_bwd_f16 = None
+
+
+def _cupy_rmsnorm_kernels_f16():
+    global _rmsnorm_fwd_f16, _rmsnorm_bwd_f16
+    if _rmsnorm_fwd_f16 is not None:
+        return _rmsnorm_fwd_f16, _rmsnorm_bwd_f16
+    import cupy as cp
+
+    _rmsnorm_fwd_f16 = cp.RawKernel(
+        r"""
+        #include <cuda_fp16.h>
+        extern "C" __global__
+        void nimbleml_rmsnorm_fwd_f16(const __half* x, const __half* gamma, __half* out,
+                                      float* ms, float* rms, int rows, int dim, float eps) {
+            int row = blockIdx.x;
+            if (row >= rows) return;
+            const __half* xr = x + (size_t)row * dim;
+            __half* orow = out + (size_t)row * dim;
+            __shared__ float shared[256];
+            float local = 0.0f;
+            for (int d = threadIdx.x; d < dim; d += blockDim.x) {
+                float v = __half2float(xr[d]);
+                local += v * v;
+            }
+            shared[threadIdx.x] = local;
+            __syncthreads();
+            for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+                if (threadIdx.x < stride) shared[threadIdx.x] += shared[threadIdx.x + stride];
+                __syncthreads();
+            }
+            float mean_sq = shared[0] / (float)dim;
+            float r = sqrtf(mean_sq + eps);
+            if (threadIdx.x == 0) { ms[row] = mean_sq; rms[row] = r; }
+            __syncthreads();
+            float inv = 1.0f / r;
+            for (int d = threadIdx.x; d < dim; d += blockDim.x) {
+                float v = __half2float(xr[d]) * inv * __half2float(gamma[d]);
+                orow[d] = __float2half(v);
+            }
+        }
+        """,
+        "nimbleml_rmsnorm_fwd_f16",
+    )
+    _rmsnorm_bwd_f16 = cp.RawKernel(
+        r"""
+        #include <cuda_fp16.h>
+        extern "C" __global__
+        void nimbleml_rmsnorm_bwd_f16(const __half* grad, const __half* x, const __half* gamma,
+                                      const float* ms, const float* rms, __half* grad_x,
+                                      float* grad_gamma, int rows, int dim, float eps) {
+            int row = blockIdx.x;
+            if (row >= rows) return;
+            const __half* xr = x + (size_t)row * dim;
+            const __half* gr = grad + (size_t)row * dim;
+            __half* gxr = grad_x + (size_t)row * dim;
+            float r = rms[row];
+            float inv = 1.0f / r;
+            float mean_sq = ms[row];
+            __shared__ float shared[256];
+            float local = 0.0f;
+            for (int d = threadIdx.x; d < dim; d += blockDim.x) {
+                float g = __half2float(gr[d]);
+                float gm = __half2float(gamma[d]);
+                float xv = __half2float(xr[d]);
+                local += (g * gm) * xv;
+            }
+            shared[threadIdx.x] = local;
+            __syncthreads();
+            for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+                if (threadIdx.x < stride) shared[threadIdx.x] += shared[threadIdx.x + stride];
+                __syncthreads();
+            }
+            float row_dot = shared[0];
+            float grad_ms = row_dot * (-0.5f) * powf(mean_sq + eps, -1.5f);
+            float coef = (2.0f / (float)dim) * grad_ms;
+            for (int d = threadIdx.x; d < dim; d += blockDim.x) {
+                float g = __half2float(gr[d]);
+                float gm = __half2float(gamma[d]);
+                float xv = __half2float(xr[d]);
+                float x_hat = xv * inv;
+                atomicAdd(grad_gamma + d, g * x_hat);
+                gxr[d] = __float2half(g * gm * inv + xv * coef);
+            }
+        }
+        """,
+        "nimbleml_rmsnorm_bwd_f16",
+    )
+    return _rmsnorm_fwd_f16, _rmsnorm_bwd_f16
+
+
 def _ptr(arr) -> int:
     return int(arr.data.ptr)
 
@@ -150,6 +242,19 @@ def fused_rmsnorm_forward(x, gamma, epsilon=1e-5):
         except Exception:
             pass
 
+    if using_gpu and flat.dtype == np.float16:
+        try:
+            fwd, _ = _cupy_rmsnorm_kernels_f16()
+            xf = np.ascontiguousarray(flat)
+            gf = np.ascontiguousarray(g_arr.reshape(-1))
+            out = np.empty_like(xf)
+            ms = np.empty((rows,), dtype=np.float32)
+            rms = np.empty((rows,), dtype=np.float32)
+            fwd((rows,), (256,), (xf, gf, out, ms, rms, rows, dim, np.float32(epsilon)))
+            return out.reshape(x_arr.shape), x_arr, ms.reshape(rows, 1), rms.reshape(rows, 1)
+        except Exception:
+            pass
+
     if x_arr.dtype == np.float16:
         ms = np.mean(x_arr * x_arr, axis=-1, keepdims=True, dtype=np.float32)
         rms = np.sqrt(ms + np.float32(epsilon))
@@ -185,6 +290,21 @@ def fused_rmsnorm_backward(grad_out, x, gamma, ms, rms, epsilon=1e-5):
             return gx.reshape(x_arr.shape), gg
         try:
             _, bwd = _cupy_rmsnorm_kernels()
+            gx = np.empty_like(xf)
+            gg = np.zeros((d,), dtype=np.float32)
+            bwd((rows,), (256,), (go, xf, gf, ms1, rms1, gx, gg, rows, d, np.float32(epsilon)))
+            return gx.reshape(x_arr.shape), gg
+        except Exception:
+            pass
+
+    if using_gpu and flat_x.dtype == np.float16:
+        try:
+            _, bwd = _cupy_rmsnorm_kernels_f16()
+            xf = np.ascontiguousarray(flat_x)
+            gf = np.ascontiguousarray(g_arr.reshape(-1))
+            go = np.ascontiguousarray(flat_g)
+            ms1 = np.ascontiguousarray(ms_arr.reshape(-1), dtype=np.float32)
+            rms1 = np.ascontiguousarray(rms_arr.reshape(-1), dtype=np.float32)
             gx = np.empty_like(xf)
             gg = np.zeros((d,), dtype=np.float32)
             bwd((rows,), (256,), (go, xf, gf, ms1, rms1, gx, gg, rows, d, np.float32(epsilon)))

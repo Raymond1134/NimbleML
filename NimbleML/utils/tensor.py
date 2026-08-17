@@ -560,7 +560,7 @@ class Tensor:
                 if right_arr.ndim == 1:
                     grad_left = np.matmul(grad_out, right_arr)
                 else:
-                    right_T = np.ascontiguousarray(np.swapaxes(right_arr, -2, -1))
+                    right_T = np.swapaxes(right_arr, -2, -1)
                     grad_left = np.matmul(grad_out, right_T)
                 self._accumulate_grad(grad_left.ravel())
 
@@ -577,7 +577,7 @@ class Tensor:
                     contract_axes = (list(range(left_arr.ndim - 1)), list(range(grad_out.ndim - 1)))
                     grad_right = np.tensordot(left_arr, grad_out, axes=contract_axes)
                 else:
-                    left_T = np.ascontiguousarray(np.swapaxes(left_arr, -2, -1))
+                    left_T = np.swapaxes(left_arr, -2, -1)
                     grad_right = np.matmul(left_T, grad_out)
                 other._accumulate_grad(grad_right.ravel())
 
@@ -709,7 +709,7 @@ class Tensor:
             if out.grad is None or not self.requires_grad:
                 return
             grad_out = _grad_out(out, (cols, rows))
-            self._accumulate_grad(np.ascontiguousarray(np.swapaxes(grad_out, -2, -1)).ravel())
+            self._accumulate_grad(np.swapaxes(grad_out, -2, -1).ravel())
 
         out._backward = _backward
         return out

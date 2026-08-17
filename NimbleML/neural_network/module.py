@@ -103,20 +103,11 @@ class Sequential(Module):
         return iter(self.layers)
 
     def forward(self, data):
-        """Apply each contained module in order.
-
-        Args:
-            data: Input tensor.
-
-        Returns:
-            Output after passing through all layers sequentially.
-        """
         for layer in self.layers:
             data = layer(data)
         return data
 
     def parameters(self):
-        """Return all parameters from contained layers."""
         params = []
         for layer in self.layers:
             if hasattr(layer, "parameters"):
@@ -125,13 +116,4 @@ class Sequential(Module):
 
 
 def residual(x, sublayer):
-    """Apply a residual (skip) connection: ``x + sublayer(x)``.
-
-    Args:
-        x: Input tensor.
-        sublayer (callable): Function or module applied to ``x``.
-
-    Returns:
-        Residual-connected output with the same shape as ``x``.
-    """
     return x + sublayer(x)

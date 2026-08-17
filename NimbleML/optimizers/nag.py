@@ -5,28 +5,13 @@ from .optimizer import Optimizer
 
 
 class NAG(Optimizer):
-    """Nesterov accelerated gradient optimizer.
-
-    NAG extends momentum-based gradient descent by evaluating the gradient
-    using a look-ahead estimate of the parameter update, often leading to
-    faster convergence than standard momentum.
-
-    Args:
-        params: Parameters to optimize.
-        learning_rate (float): Learning rate. Defaults to 0.01.
-        momentum (float): Momentum factor. Defaults to 0.9.
-    """
+    """Nesterov accelerated gradient."""
     def __init__(self, params, learning_rate=0.01, momentum=0.9):
         super().__init__(params, learning_rate=learning_rate)
         self.momentum = momentum
         self.velocities = [np.zeros(param.size, dtype=np_backend.dtype) for param in self.params]
 
     def step(self):
-        """Perform a single optimization step.
-
-        Updates all parameters with available gradients using Nesterov accelerated
-        gradient and momentum accumulation.
-        """
         offset = 0
         for group in self.param_groups:
             lr = group["lr"]
@@ -41,3 +26,4 @@ class NAG(Optimizer):
                 nesterov_grad = grad + self.momentum * v
                 param.data -= lr * nesterov_grad
             offset += len(group["params"])
+        self._notify_weights_updated()

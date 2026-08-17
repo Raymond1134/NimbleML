@@ -27,3 +27,4 @@ class SGDM(Optimizer):
                 v += grad
                 param.data -= lr * v
             offset += len(group["params"])
+        self._notify_weights_updated()

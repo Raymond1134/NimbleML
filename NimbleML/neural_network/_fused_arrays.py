@@ -7,6 +7,13 @@ from NimbleML.utils.activations import gelu_backward, gelu_forward
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.rope import apply_rope_flat
 
+_qkv_gen = 0
+
+
+def mark_weights_updated():
+    global _qkv_gen
+    _qkv_gen += 1
+
 
 def _as2d(x, d_last):
     row = prod(x.shape[:-1]) if x.ndim > 1 else 1
@@ -49,36 +56,64 @@ def _merge_heads_array(arr, batch, seq_len, num_heads, d_k):
     return np.transpose(shape_4d, (0, 2, 1, 3)).reshape(batch, seq_len, num_heads * d_k)
 
 
-def mha_forward_arrays(x_arr, mha, mask_arr):
-    """Multi-head self-attention on ``(batch, seq, d_model)`` activations.
+def _qkv_weight(mha):
+    d = mha.d_model
+    wq = _tensor_param(mha.W_q.weights)
+    buf = getattr(mha, "_w_qkv", None)
+    if (
+        buf is not None
+        and getattr(mha, "_qkv_gen", None) == _qkv_gen
+        and buf.shape == (d, 3 * d)
+        and buf.dtype == wq.dtype
+    ):
+        return buf
+    wk = _tensor_param(mha.W_k.weights)
+    wv = _tensor_param(mha.W_v.weights)
+    if buf is None or buf.shape != (d, 3 * d) or buf.dtype != wq.dtype:
+        mha._w_qkv = np.empty((d, 3 * d), dtype=wq.dtype)
+        buf = mha._w_qkv
+    buf[:, :d] = wq
+    buf[:, d : 2 * d] = wk
+    buf[:, 2 * d :] = wv
+    mha._qkv_gen = _qkv_gen
+    return buf
 
-    Q/K/V projections run as one fused GEMM against the concatenated weight
-    matrix. When the attention module carries a RoPE cache (set by ``GPT``
-    when ``use_rope=True``), rotary embeddings are applied to Q and K after
-    the head split.
-    """
+
+def _qkv_bias(mha, qkv):
+    d = mha.d_model
+    biases = (mha.W_q.biases, mha.W_k.biases, mha.W_v.biases)
+    if not any(b is not None for b in biases):
+        return qkv
+    buf = getattr(mha, "_b_qkv", None)
+    if (
+        buf is not None
+        and getattr(mha, "_b_qkv_gen", None) == _qkv_gen
+        and buf.shape == (3 * d,)
+        and buf.dtype == qkv.dtype
+    ):
+        return qkv + buf
+    if buf is None or buf.shape != (3 * d,) or buf.dtype != qkv.dtype:
+        mha._b_qkv = np.empty((3 * d,), dtype=qkv.dtype)
+        buf = mha._b_qkv
+    for i, b in enumerate(biases):
+        sl = slice(i * d, (i + 1) * d)
+        if b is not None:
+            buf[sl] = _tensor_param(b).reshape(-1)
+        else:
+            buf[sl] = 0
+    mha._b_qkv_gen = _qkv_gen
+    return qkv + buf
+
+
+def mha_forward_arrays(x_arr, mha, mask_arr):
     batch, seq_len, d_model = x_arr.shape
     num_heads = mha.num_heads
     d_k = mha.d_k
     scale = mha.scale
 
     x2d, _ = _as2d(x_arr, d_model)
-    wq = _tensor_param(mha.W_q.weights)
-    wk = _tensor_param(mha.W_k.weights)
-    wv = _tensor_param(mha.W_v.weights)
-    w_qkv = np.concatenate([wq, wk, wv], axis=1)  # (d_model, 3*d_model)
-
-    qkv = x2d @ w_qkv
-    biases = (mha.W_q.biases, mha.W_k.biases, mha.W_v.biases)
-    has_bias = any(b is not None for b in biases)
-    if has_bias:
-        parts = [
-            _tensor_param(b).reshape(-1)
-            if b is not None
-            else np.zeros(d_model, dtype=qkv.dtype)
-            for b in biases
-        ]
-        qkv = qkv + np.concatenate(parts)
+    w_qkv = _qkv_weight(mha)
+    qkv = _qkv_bias(mha, x2d @ w_qkv)
 
     q = _split_heads_array(
         qkv[:, :d_model].reshape(batch, seq_len, d_model), batch, seq_len, num_heads, d_k
@@ -98,7 +133,7 @@ def mha_forward_arrays(x_arr, mha, mask_arr):
         k = apply_rope_flat(k, rope[0], rope[1])
 
     attn_out, probs = fused_sdpa_forward(
-        q, k, v, scale, mask_arr, batch=batch, num_heads=num_heads
+        q, k, v, scale, mask_arr, batch=batch, num_heads=num_heads, leaves_owner=mha
     )
     merged = _merge_heads_array(attn_out, batch, seq_len, num_heads, d_k)
     merged2d, _ = _as2d(merged, d_model)

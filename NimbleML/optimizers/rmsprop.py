@@ -28,3 +28,4 @@ class RMSProp(Optimizer):
                 sq += (1.0 - self.rho) * grad * grad
                 param.data -= lr * grad / (np.sqrt(sq) + self.epsilon)
             offset += len(group["params"])
+        self._notify_weights_updated()

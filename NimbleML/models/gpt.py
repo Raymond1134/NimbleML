@@ -90,44 +90,11 @@ class GPT(Module):
         return self.ln(x)
 
     def forward(self, input_ids):
-        """Runs a forward pass of the GPT model.
-
-        Computes token logits for next-token prediction: logits = GPT(input_ids) → (batch, seq_len, vocab_size)
-
-        The model:
-            1. Embeds token IDs
-            2. Adds learned positional embeddings
-            3. Passes through transformer blocks
-            4. Applies RMS normalization
-            5. Projects to vocabulary space using tied embeddings
-
-        Args:
-            input_ids (Tensor): Integer token IDs of shape (batch, seq_len).
-
-        Returns:
-            Tensor: Logits over vocabulary with shape (batch, seq_len, vocab_size).
-
-        Raises:
-            ValueError:
-                - If input_ids is not 2D.
-                - If sequence length exceeds max_seq_len.
-                - If hidden dimension does not match model configuration.
-        
-        Examples:
-            >>> model = GPT(vocab_size=10000, d_model=768, num_heads=12, num_layers=12, max_seq_len=1024)
-            >>> input_ids = Tensor.from_int64(np.array([[1, 2, 3, 4, 5]]), (1, 5))
-            >>> logits = model(input_ids)
-        """
+        """Token logits ``(batch, seq, vocab)`` via tied embeddings."""
         return self._tied_logits(self._hidden_states(input_ids))
 
     def compute_loss(self, input_ids, labels, ignore_index=None):
-        """Training loss with fused tied CE (preferred over ``forward`` + CE).
-
-        Prefer this over ``CrossEntropyLoss(model(input_ids), labels)`` during
-        training: it fuses ``hidden @ embedding.T`` with fused cross-entropy so
-        the forward pass never materializes a full ``(batch, seq, vocab)`` logits
-        tensor.
-        """
+        """Training loss with fused tied LM head + cross-entropy."""
         hidden = self._hidden_states(input_ids)
         return self._ce_loss.forward_tied(
             hidden,
@@ -181,15 +148,6 @@ class GPT(Module):
         return out
 
     def parameters(self):
-        """Returns learnable parameters of the layer.
-
-        Returns:
-            list[Tensor]: Learnable parameters of the layer.
-        
-        Examples:
-            >>> model = GPT(vocab_size=10000, d_model=768, num_heads=12, num_layers=12, max_seq_len=1024)
-            >>> params = model.parameters()
-        """
         params = []
         for layer in (self.token_emb, self.blocks):
             params.extend(layer.parameters())

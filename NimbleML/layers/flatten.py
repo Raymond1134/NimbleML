@@ -11,18 +11,6 @@ class Flatten(Module):
     while preserving the batch dimension.
     """
     def forward(self, inputs):
-        """Flattens all non-batch dimensions.
-
-        Args:
-            inputs (Tensor): Input tensor with at least two dimensions,
-            where the first dimension represents the batch size.
-
-        Returns:
-            Tensor: Flattened tensor of shape ``(batch_size, prod(inputs.shape[1:]))``.
-
-        Raises:
-            ValueError: If the input tensor has fewer than two dimensions.
-        """
         if inputs.ndim < 2:
             raise ValueError("Flatten expects input with at least 2 dimensions (batch, ...).")
 

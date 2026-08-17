@@ -30,22 +30,6 @@ class LayerNorm(Module):
         )
 
     def forward(self, inputs):
-        """Applies layer normalization to the input tensor.
-
-        Args:
-            inputs (Tensor): Input tensor whose last dimension matches ``normalized_shape``.
-
-        Returns:
-            Tensor: Normalized tensor with the same shape as ``inputs``.
-
-        Raises:
-            ValueError: If the last input dimension does not match ``normalized_shape``.
-        
-        Examples:
-            >>> layer = LayerNorm(normalized_shape=10)
-            >>> inputs = Tensor(np.random.randn(10, 10), (10, 10))
-            >>> output = layer.forward(inputs)
-        """
         if inputs.shape[-1] != self.normalized_shape:
             raise ValueError(f"Expected last dim {self.normalized_shape}, got {inputs.shape[-1]}")
         
@@ -57,13 +41,4 @@ class LayerNorm(Module):
         return normalized * self.gamma + self.beta
 
     def parameters(self):
-        """Returns learnable parameters of the layer.
-
-        Returns:
-            list[Tensor]: Scale parameter ``gamma`` and shift parameter ``beta``.
-        
-        Examples:
-            >>> layer = LayerNorm(normalized_shape=10)
-            >>> params = layer.parameters()
-        """
         return [self.gamma, self.beta]

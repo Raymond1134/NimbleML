@@ -14,12 +14,4 @@ class Gelu(Module):
     """
 
     def forward(self, inputs):
-        """Applies the GELU activation function.
-
-        Args:
-            inputs (Tensor): Input tensor.
-
-        Returns:
-            Tensor: Output tensor with GELU applied element-wise.
-        """
         return inputs.gelu()

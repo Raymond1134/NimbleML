@@ -17,3 +17,4 @@ class SGD(Optimizer):
                 if param.grad is None:
                     continue
                 param.data -= lr * np.asarray(param.grad, dtype=np_backend.dtype)
+        self._notify_weights_updated()

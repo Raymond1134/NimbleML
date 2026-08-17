@@ -23,26 +23,6 @@ class RMSNorm(Module):
         )
 
     def forward(self, inputs):
-        """Applies RMS normalization to the input tensor.
-
-        RMSNorm computes: y = gamma * (x / RMS(x))
-        where: RMS(x) = sqrt(mean(x²) + epsilon)
-        and the mean is taken over the last dimension.
-
-        Args:
-            inputs (Tensor): Input tensor whose last dimension matches ``normalized_shape``.
-
-        Returns:
-            Tensor: RMS-normalized tensor with the same shape as ``inputs``.
-
-        Raises:
-            ValueError: If the last input dimension does not match ``normalized_shape``.
-        
-        Examples:
-            >>> layer = RMSNorm(normalized_shape=10)
-            >>> inputs = Tensor(np.random.randn(10, 10), (10, 10))
-            >>> output = layer.forward(inputs)
-        """
         if inputs.shape[-1] != self.normalized_shape:
             raise ValueError(f"Expected last dim {self.normalized_shape}, got {inputs.shape[-1]}")
 
@@ -95,13 +75,4 @@ class RMSNorm(Module):
         return out
 
     def parameters(self):
-        """Returns learnable parameters of the layer.
-
-        Returns:
-            list[Tensor]: List containing the scale parameter ``gamma``.
-
-        Examples:
-            >>> layer = RMSNorm(normalized_shape=10)
-            >>> params = layer.parameters()
-        """
         return [self.gamma]

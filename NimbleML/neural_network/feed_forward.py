@@ -16,31 +16,6 @@ class FeedForward(Module):
         self.dense2 = Dense(hidden, d_model)
 
     def forward(self, x):
-        """Applies the Transformer feedforward network.
-
-        This module processes each token independently using a 2-layer MLP:
-
-            1. Linear projection: d_model → ff_mult * d_model
-            2. GELU activation
-            3. Linear projection: back to d_model
-
-        Args:
-            x (Tensor): Input tensor of shape (batch, seq, d_model).
-
-        Returns:
-            Tensor: Output tensor of shape (batch, seq, d_model).
-        
-        Raises:
-            ValueError:
-                - If the input tensor does not match the expected shape.
-                - If the dense layers do not match the expected shapes.
-                - If the output tensor does not match the expected shape.
-        
-        Examples:
-            >>> feed_forward = FeedForward(d_model=768, ff_mult=4)
-            >>> x = Tensor(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), shape=(2, 3, 768), requires_grad=True)
-            >>> output = feed_forward(x)
-        """
         weights1 = self.dense1.weights
         bias1 = self.dense1.biases
         weights2 = self.dense2.weights
@@ -68,8 +43,8 @@ class FeedForward(Module):
         x_arr = x._view((row_count, d_in))
         w1 = weights1._view((d_in, d_hidden))
         w2 = weights2._view((d_hidden, d_out))
-        w1_T = np.ascontiguousarray(np.swapaxes(w1, -2, -1))
-        w2_T = np.ascontiguousarray(np.swapaxes(w2, -2, -1))
+        w1_T = np.swapaxes(w1, -2, -1)
+        w2_T = np.swapaxes(w2, -2, -1)
         b1 = bias1._view(d_hidden) if bias1 is not None else None
         b2 = bias2._view(d_out) if bias2 is not None else None
 
@@ -109,7 +84,7 @@ class FeedForward(Module):
             grad_out = _grad_out(out, (row_count, d_out))
 
             if weights2.requires_grad:
-                grad_w2 = np.matmul(np.ascontiguousarray(np.swapaxes(save_hidden, -2, -1)), grad_out)
+                grad_w2 = np.matmul(np.swapaxes(save_hidden, -2, -1), grad_out)
                 weights2._accumulate_grad(grad_w2.ravel())
             if bias2 is not None and bias2.requires_grad:
                 bias2._accumulate_grad(np.sum(grad_out, axis=0).ravel())
@@ -118,7 +93,7 @@ class FeedForward(Module):
             grad_pre_act = gelu_backward(grad_hidden, save_pre, save_tanh_u)
 
             if weights1.requires_grad:
-                grad_w1 = np.matmul(np.ascontiguousarray(np.swapaxes(save_x, -2, -1)), grad_pre_act)
+                grad_w1 = np.matmul(np.swapaxes(save_x, -2, -1), grad_pre_act)
                 weights1._accumulate_grad(grad_w1.ravel())
             if bias1 is not None and bias1.requires_grad:
                 bias1._accumulate_grad(np.sum(grad_pre_act, axis=0).ravel())
@@ -130,7 +105,6 @@ class FeedForward(Module):
         return out
 
     def parameters(self):
-        """Returns all learnable parameters in the feedforward network."""
         params = []
         for layer in (self.dense1, self.dense2):
             params.extend(layer.parameters())

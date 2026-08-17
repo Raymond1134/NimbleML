@@ -21,24 +21,6 @@ class Embedding(Module):
         )
 
     def forward(self, inputs):
-        """Looks up embeddings for input token IDs.
-
-        Args:
-            inputs (Tensor or array-like): Integer token IDs.
-
-        Returns:
-            Tensor: Embedded representation of shape (..., embed_dim).
-        
-        Raises:
-            ValueError: If the token IDs are out of range [0, vocab_size).
-        
-        Examples:
-            >>> layer = Embedding(vocab_size=100, embed_dim=8)
-            >>> inputs = Tensor.from_int64([1, 2, 3, 4, 5], (5,))
-            >>> output = layer.forward(inputs)
-            >>> output.shape
-            (5, 8)
-        """
         if isinstance(inputs, Tensor) and Tensor._is_int64_tensor(inputs):
             ids = np.asarray(inputs.data, dtype=np.int64).reshape(-1)
             in_shape = inputs.shape
@@ -70,26 +52,7 @@ class Embedding(Module):
         return output
 
     def forward_prefix(self, seq_len: int):
-        """Embeds a contiguous prefix of position / token IDs ``[0, seq_len)``.
-
-        Returns a view into the first ``seq_len`` rows of the embedding table
-        (no copy). Gradients scatter back via ``_accumulate_prefix_grad``.
-
-        Args:
-            seq_len (int): Number of sequential IDs to embed.
-
-        Returns:
-            Tensor: Embeddings of shape (seq_len, embed_dim).
-        
-        Raises:
-            ValueError: If ``seq_len`` is out of range [0, vocab_size).
-        
-        Examples:
-            >>> layer = Embedding(vocab_size=100, embed_dim=8)
-            >>> output = layer.forward_prefix(seq_len=4)
-            >>> output.shape
-            (4, 8)
-        """
+        """View of embedding rows ``[0, seq_len)``."""
         if seq_len < 0 or seq_len > self.vocab_size:
             raise ValueError(f"seq_len must be in [0, {self.vocab_size}), got {seq_len}.")
         if seq_len == 0:
@@ -118,16 +81,6 @@ class Embedding(Module):
         return output
 
     def parameters(self):
-        """Returns learnable parameters.
-
-        Returns:
-            list[Tensor]: List containing the embedding weight matrix.
-        
-        Examples:
-            >>> layer = Embedding(vocab_size=100, embed_dim=8)
-            >>> len(layer.parameters())
-            1
-        """
         return [self.weights]
 
     def _ensure_weight_grad(self):

@@ -8,9 +8,28 @@ _DEVICE_PREFERENCE = os.environ.get("NIMBLEML_DEVICE", "auto").strip().lower()
 # Populated by configure_gpu_runtime() on the first GPU init.
 _gpu_runtime_configured = False
 _gpu_runtime_info: dict = {}
-_device_stream = None
 _memory_pool = None
 _pinned_pool = None
+
+
+def _patch_cupy_nvrtc_arch() -> None:
+    """Map Blackwell Ultra (sm_103) to sm_100 so CuPy's NVRTC accepts -arch."""
+    try:
+        from cupy.cuda import compiler
+    except Exception:
+        return
+    orig = getattr(compiler, "_get_arch", None)
+    if orig is None or getattr(orig, "_nimbleml_patched", False):
+        return
+
+    def _get_arch():
+        arch = orig()
+        if str(arch) in ("101", "102", "103"):
+            return "100"
+        return arch
+
+    _get_arch._nimbleml_patched = True  # type: ignore[attr-defined]
+    compiler._get_arch = _get_arch
 
 
 def _try_cupy():
@@ -25,19 +44,25 @@ def _try_cupy():
 
 
 def configure_gpu_runtime(*, verbose: bool = False) -> dict:
-    """Enable TF32, caching allocator, and a default CUDA stream for CuPy.
+    """Enable TF32 and CuPy's caching allocator.
 
     Idempotent. No-op when the backend is CPU. Returns a small status dict
     (device name, TF32, pool) useful for training logs.
     """
-    global _gpu_runtime_configured, _gpu_runtime_info, _device_stream
+    global _gpu_runtime_configured, _gpu_runtime_info
     global _memory_pool, _pinned_pool
 
     if not using_gpu:
-        _gpu_runtime_info = {"device": "cpu", "tf32": False, "pool": False}
+        _gpu_runtime_info = {
+            "device": "cpu",
+            "tf32": False,
+            "pool": False,
+            "shared_stream": False,
+        }
         if verbose:
             print("[gpu] cpu backend", flush=True)
         return _gpu_runtime_info
+    _patch_cupy_nvrtc_arch()
     if _gpu_runtime_configured:
         if verbose:
             info = _gpu_runtime_info
@@ -50,7 +75,13 @@ def configure_gpu_runtime(*, verbose: bool = False) -> dict:
 
     import cupy as cp
 
-    info: dict = {"device": "gpu", "tf32": False, "pool": False, "name": ""}
+    info: dict = {
+        "device": "gpu",
+        "tf32": False,
+        "pool": False,
+        "name": "",
+        "shared_stream": False,
+    }
     try:
         props = cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)
         name = props.get("name")
@@ -89,10 +120,34 @@ def configure_gpu_runtime(*, verbose: bool = False) -> dict:
     except Exception:
         info["pool"] = False
 
+    info["shared_stream"] = False
+
     try:
-        _device_stream = cp.cuda.Stream(null=False, non_blocking=True)
+        import torch
+
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cudnn.benchmark = True
+            enable_flash = getattr(torch.backends.cuda, "enable_flash_sdp", None)
+            if enable_flash is not None:
+                enable_flash(True)
+            enable_mem = getattr(torch.backends.cuda, "enable_mem_efficient_sdp", None)
+            if enable_mem is not None:
+                enable_mem(True)
+            enable_math = getattr(torch.backends.cuda, "enable_math_sdp", None)
+            if enable_math is not None:
+                enable_math(True)
+            enable_cudnn = getattr(torch.backends.cuda, "enable_cudnn_sdp", None)
+            if enable_cudnn is not None:
+                enable_cudnn(False)
+            info["torch_tf32"] = True
+            info["torch_sdp_flash"] = True
     except Exception:
-        _device_stream = None
+        info["torch_tf32"] = False
+
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     _gpu_runtime_configured = True
     _gpu_runtime_info = info
@@ -110,11 +165,6 @@ def gpu_runtime_info() -> dict:
     return dict(_gpu_runtime_info)
 
 
-def device_stream():
-    """Non-blocking CUDA stream created by configure_gpu_runtime(), or None."""
-    return _device_stream
-
-
 def sync_device() -> None:
     """Block until outstanding GPU work finishes (no-op on CPU)."""
     if not using_gpu:
@@ -122,8 +172,6 @@ def sync_device() -> None:
     import cupy as cp
 
     cp.cuda.Device().synchronize()
-    if _device_stream is not None:
-        _device_stream.synchronize()
 
 
 def _init_backend(preference):
@@ -138,10 +186,12 @@ def _init_backend(preference):
             raise RuntimeError(
                 "NIMBLEML_DEVICE=gpu but CuPy is unavailable or no CUDA device was found."
             )
+        _patch_cupy_nvrtc_arch()
         return cp, True, "gpu"
 
     cp = _try_cupy()
     if cp is not None:
+        _patch_cupy_nvrtc_arch()
         return cp, True, "gpu"
 
     import numpy as np
@@ -254,7 +304,7 @@ def set_device(name):
     NIMBLEML_DEVICE in the environment before starting Python.
     """
     global np, using_gpu, device, _DEVICE_PREFERENCE, dtype
-    global _gpu_runtime_configured, _gpu_runtime_info, _device_stream
+    global _gpu_runtime_configured, _gpu_runtime_info
     global _memory_pool, _pinned_pool
 
     name = name.strip().lower()
@@ -268,7 +318,6 @@ def set_device(name):
     dtype = _resolve_dtype(_DTYPE_PREFERENCE)
     _gpu_runtime_configured = False
     _gpu_runtime_info = {}
-    _device_stream = None
     _memory_pool = None
     _pinned_pool = None
     if using_gpu:

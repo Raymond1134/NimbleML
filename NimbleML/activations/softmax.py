@@ -1,6 +1,6 @@
 """Softmax activation with arbitrary-axis support."""
 from NimbleML.neural_network import Module
-from NimbleML.utils.activations import softmax_backward, softmax_forward
+from NimbleML.utils.softmax import softmax_backward, softmax_forward
 from NimbleML.utils.axis import normalize_axis
 from NimbleML.utils.np_backend import np
 from NimbleML.utils.tensor import Tensor, _grad_out
@@ -24,17 +24,6 @@ class Softmax(Module):
         self.axis = int(axis)
 
     def forward(self, inputs):
-        """Apply softmax along ``self.axis``.
-
-        Args:
-            inputs: Logits tensor with ``ndim >= 1``.
-
-        Returns:
-            Tensor of probabilities with the same shape as ``inputs``.
-
-        Raises:
-            ValueError: If inputs has less than 1 dimension.
-        """
         if inputs.ndim < 1:
             raise ValueError("Softmax expects at least a 1D tensor.")
 
