@@ -70,6 +70,7 @@ def generate(
     eos_id: int | None = None,
     repetition_penalty: float = 1.0,
     use_kv_cache: bool = True,
+    stop_id_seqs: list[list[int]] | None = None,
 ):
     """Greedy / sampled generation.
 
@@ -86,7 +87,21 @@ def generate(
 
     batch = ids.shape[0]
     generated = [list(ids[b].tolist()) for b in range(batch)]
+    prompt_lens = [len(generated[b]) for b in range(batch)]
+    stops = [list(s) for s in (stop_id_seqs or []) if s]
     cache = None
+
+    def _hit_stop(seq: list[int], prompt_len: int) -> bool:
+        new = seq[prompt_len:]
+        if not new:
+            return False
+        if eos_id is not None and new[-1] == eos_id:
+            return True
+        for stop in stops:
+            n = len(stop)
+            if n and len(new) >= n and new[-n:] == stop:
+                return True
+        return False
 
     with no_grad():
         for _ in range(max_new_tokens):
@@ -113,7 +128,7 @@ def generate(
                     repetition_penalty=repetition_penalty,
                 )
                 generated[b].append(tok)
-            if eos_id is not None and all(generated[b][-1] == eos_id for b in range(batch)):
+            if all(_hit_stop(generated[b], prompt_lens[b]) for b in range(batch)):
                 break
 
     return np.asarray(generated, dtype=np.int64)
