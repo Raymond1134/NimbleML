@@ -209,8 +209,6 @@ def torch_sdpa_forward(
     else:
         q_in, k_in, v_in = q, k, v
 
-    tq, tk, tv = _torch_leaves(q_in, k_in, v_in, leaves_owner)
-
     inv_scale = 1.0 / float(scale)
     try:
         from torch.nn.attention import SDPBackend, sdpa_kernel
@@ -222,6 +220,30 @@ def torch_sdpa_forward(
         from contextlib import nullcontext
 
         sdp_ctx = nullcontext()
+
+    from NimbleML.utils.grad_mode import is_grad_enabled
+
+    if not is_grad_enabled():
+        # Generate/eval: do not clone grad leaves or torch.enable_grad().
+        # Training kernels + expandable_segments warnings show up otherwise,
+        # and Blackwell can pick a worse SDPA backend.
+        tq = _cupy_to_torch(q_in)
+        tk = _cupy_to_torch(k_in)
+        tv = _cupy_to_torch(v_in)
+        with sdp_ctx, torch.no_grad():
+            out = F.scaled_dot_product_attention(
+                tq, tk, tv, attn_mask=None, dropout_p=0.0, is_causal=causal, scale=inv_scale
+            )
+        _STATS["backend"] = "torch_sdpa"
+        _sync_torch_then_cupy()
+        out_cp = _torch_to_cupy(out)
+        if use_4d:
+            out_cp = out_cp.reshape(q.shape)
+        if out_cp.dtype != q.dtype:
+            out_cp = out_cp.astype(q.dtype, copy=False)
+        return out_cp, {"torch_sdpa": True, "inference": True, "use_4d": use_4d, "out_shape": q.shape}
+
+    tq, tk, tv = _torch_leaves(q_in, k_in, v_in, leaves_owner)
     with sdp_ctx, torch.enable_grad():
         out = F.scaled_dot_product_attention(
             tq, tk, tv, attn_mask=None, dropout_p=0.0, is_causal=causal, scale=inv_scale
@@ -251,6 +273,8 @@ def torch_sdpa_forward(
 
 
 def torch_sdpa_backward(grad_out, ctx):
+    if ctx.get("inference"):
+        raise RuntimeError("torch SDPA inference ctx has no backward")
     _sync_cupy_then_torch()
     go = _as_contiguous_cupy(grad_out)
     if ctx.get("use_4d"):

@@ -10,6 +10,7 @@ _gpu_runtime_configured = False
 _gpu_runtime_info: dict = {}
 _memory_pool = None
 _pinned_pool = None
+_cublas_warmed = False
 
 
 def _patch_cupy_nvrtc_arch() -> None:
@@ -33,6 +34,7 @@ def _patch_cupy_nvrtc_arch() -> None:
 
 
 def _try_cupy():
+    _ensure_windows_cuda_dlls()
     try:
         import cupy as cp
 
@@ -43,6 +45,45 @@ def _try_cupy():
     return None
 
 
+def _ensure_windows_cuda_dlls() -> None:
+    """Put the CUDA Toolkit bin dir on the DLL search path (Windows + CuPy)."""
+    if os.name != "nt":
+        return
+    cuda = os.environ.get("CUDA_PATH") or os.environ.get("CUDA_HOME")
+    if not cuda or not os.path.isdir(os.path.join(cuda, "bin")):
+        toolkit = os.path.join(
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            "NVIDIA GPU Computing Toolkit",
+            "CUDA",
+        )
+        if os.path.isdir(toolkit):
+            versions = sorted(
+                (p for p in os.listdir(toolkit) if p.startswith("v")),
+                reverse=True,
+            )
+            for ver in versions:
+                candidate = os.path.join(toolkit, ver)
+                if os.path.isdir(os.path.join(candidate, "bin")):
+                    cuda = candidate
+                    break
+    if not cuda:
+        return
+    os.environ.setdefault("CUDA_PATH", cuda)
+    os.environ.setdefault("CUDA_HOME", cuda)
+    bindir = os.path.join(cuda, "bin")
+    if not os.path.isdir(bindir):
+        return
+    path = os.environ.get("PATH", "")
+    if bindir not in path.split(";"):
+        os.environ["PATH"] = bindir + ";" + path
+    add = getattr(os, "add_dll_directory", None)
+    if add is not None:
+        try:
+            add(bindir)
+        except OSError:
+            pass
+
+
 def configure_gpu_runtime(*, verbose: bool = False) -> dict:
     """Enable TF32 and CuPy's caching allocator.
 
@@ -51,6 +92,8 @@ def configure_gpu_runtime(*, verbose: bool = False) -> dict:
     """
     global _gpu_runtime_configured, _gpu_runtime_info
     global _memory_pool, _pinned_pool
+
+    _ensure_windows_cuda_dlls()
 
     if not using_gpu:
         _gpu_runtime_info = {
@@ -110,6 +153,11 @@ def configure_gpu_runtime(*, verbose: bool = False) -> dict:
     except Exception:
         pass
 
+    info["shared_stream"] = False
+    # Dummy GEMM on the default allocator, before the custom pool and before
+    # importing torch. A failed gemmEx poisons cuBLAS for the whole process.
+    info["cublas_warmup"] = warmup_cublas()
+
     # Caching memory allocator (CuPy default pool is fine; pin it explicitly).
     try:
         _memory_pool = cp.cuda.MemoryPool()
@@ -119,8 +167,6 @@ def configure_gpu_runtime(*, verbose: bool = False) -> dict:
         info["pool"] = True
     except Exception:
         info["pool"] = False
-
-    info["shared_stream"] = False
 
     try:
         import torch
@@ -154,10 +200,38 @@ def configure_gpu_runtime(*, verbose: bool = False) -> dict:
     if verbose:
         print(
             f"[gpu] {info.get('name', 'cuda')} tf32={info['tf32']} "
-            f"mempool={info['pool']}",
+            f"mempool={info['pool']} cublas_warmup={info['cublas_warmup']}",
             flush=True,
         )
     return info
+
+
+def warmup_cublas() -> bool:
+    """Run one known-good fp16 GEMM so cuBLAS is initialized.
+
+    On Windows + Blackwell (sm_120), the first CuPy ``gemmEx`` after importing
+    torch can return ``CUBLAS_STATUS_INVALID_VALUE`` and poison the handle for
+    the rest of the process. A contiguous dummy GEMM first avoids that. Do not
+    call a GEMM that might fail during init.
+    """
+    global _cublas_warmed
+    if _cublas_warmed:
+        return True
+    if not using_gpu:
+        return False
+    import cupy as cp
+
+    a = cp.ascontiguousarray(cp.random.randn(138, 1024).astype(cp.float16))
+    b = cp.ascontiguousarray(cp.random.randn(1024, 3072).astype(cp.float16))
+    try:
+        c = a @ b
+        cp.cuda.Device().synchronize()
+        _ = int(c.shape[0])
+        _cublas_warmed = True
+        return True
+    except Exception as exc:
+        print(f"[gpu] cublas warmup failed: {exc}", flush=True)
+        return False
 
 
 def gpu_runtime_info() -> dict:
@@ -200,8 +274,11 @@ def _init_backend(preference):
 
 
 np, using_gpu, device = _init_backend(_DEVICE_PREFERENCE)
+# Prime cuBLAS before any later torch import. Do not call configure_gpu_runtime()
+# here — importing torch in the middle of ``NimbleML.__init__`` poisons CuPy GEMM
+# on some Windows+Blackwell stacks unless a dummy GEMM already succeeded.
 if using_gpu:
-    configure_gpu_runtime(verbose=False)
+    warmup_cublas()
 
 
 _DTYPE_PREFERENCE = os.environ.get("NIMBLEML_DTYPE", "float32").strip().lower()

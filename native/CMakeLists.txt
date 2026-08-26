@@ -43,7 +43,7 @@ pybind11_add_module(nimbleml_native MODULE ${NIMBLEML_SOURCES})
 target_include_directories(nimbleml_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 if(MSVC)
-  target_compile_options(nimbleml_native PRIVATE /O2 /EHsc)
+  target_compile_options(nimbleml_native PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/O2> $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
 else()
   find_package(OpenMP)
   if(OpenMP_CXX_FOUND)
@@ -53,8 +53,13 @@ else()
 endif()
 
 if(NIMBLEML_WITH_CUDA)
-  # Ampere (80/86) / Ada (89) / Hopper (90) / Blackwell (100) / Blackwell Ultra (103)
-  set_target_properties(nimbleml_native PROPERTIES CUDA_ARCHITECTURES "75;80;86;89;90;100;103")
+  # Ampere (80/86) / Ada (89) / Hopper (90) / Blackwell datacenter (100/103)
+  # / Blackwell consumer (120 = RTX 5080/5090). Override with
+  # -DCMAKE_CUDA_ARCHITECTURES=120 for a faster local build.
+  if(NOT CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89;90;100;103;120")
+  endif()
+  set_target_properties(nimbleml_native PROPERTIES CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
   # cudart for kernels; cublas for future device GEMM helpers (CuPy already uses cuBLAS).
   target_link_libraries(nimbleml_native PRIVATE CUDA::cudart CUDA::cublas)
 endif()

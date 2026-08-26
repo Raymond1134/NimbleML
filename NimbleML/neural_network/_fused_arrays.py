@@ -113,6 +113,9 @@ def mha_forward_arrays(x_arr, mha, mask_arr):
 
     x2d, _ = _as2d(x_arr, d_model)
     w_qkv = _qkv_weight(mha)
+    # Blackwell + CuPy gemmEx is picky about strides on the first QKV matmul.
+    x2d = np.ascontiguousarray(x2d)
+    w_qkv = np.ascontiguousarray(w_qkv)
     qkv = _qkv_bias(mha, x2d @ w_qkv)
 
     q = _split_heads_array(

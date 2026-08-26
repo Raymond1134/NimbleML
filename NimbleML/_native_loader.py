@@ -7,6 +7,7 @@ NimbleML does not ship a Python fallback for hot kernels. Build the extension by
 Prerequisites: C++ toolchain (MSVC on Windows), CMake, and pybind11.
 """
 from __future__ import annotations
+import os
 
 _INSTALL_HINT = (
     "NimbleML requires the compiled extension 'nimbleml_native'.\\n"
@@ -17,7 +18,46 @@ _INSTALL_HINT = (
 )
 
 
+def _add_windows_cuda_dlls() -> None:
+    """CUDA-built wheels need ``cudart64_*.dll`` on the Windows DLL search path."""
+    if os.name != "nt":
+        return
+    cuda = os.environ.get("CUDA_PATH") or os.environ.get("CUDA_HOME")
+    if not cuda or not os.path.isdir(os.path.join(cuda, "bin")):
+        toolkit = os.path.join(
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            "NVIDIA GPU Computing Toolkit",
+            "CUDA",
+        )
+        if os.path.isdir(toolkit):
+            for ver in sorted(
+                (p for p in os.listdir(toolkit) if p.startswith("v")),
+                reverse=True,
+            ):
+                candidate = os.path.join(toolkit, ver)
+                if os.path.isdir(os.path.join(candidate, "bin")):
+                    cuda = candidate
+                    os.environ.setdefault("CUDA_PATH", cuda)
+                    os.environ.setdefault("CUDA_HOME", cuda)
+                    break
+    if not cuda:
+        return
+    bindir = os.path.join(cuda, "bin")
+    if not os.path.isdir(bindir):
+        return
+    path = os.environ.get("PATH", "")
+    if bindir not in path.split(";"):
+        os.environ["PATH"] = bindir + ";" + path
+    add = getattr(os, "add_dll_directory", None)
+    if add is not None:
+        try:
+            add(bindir)
+        except OSError:
+            pass
+
+
 def load_native():
+    _add_windows_cuda_dlls()
     try:
         import nimbleml_native as native
     except ImportError as exc:

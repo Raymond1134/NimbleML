@@ -16,6 +16,12 @@ from .metrics import accuracy_score, mean_absolute_error, mean_squared_error, pr
 # Required native extension — fail fast if not built.
 from ._native_loader import native as _native  # noqa: F401
 
+# GPU allocator / TF32 after the package graph is loaded (see np_backend).
+if using_gpu:
+    from .utils.np_backend import configure_gpu_runtime as _configure_gpu_runtime
+
+    _configure_gpu_runtime(verbose=False)
+
 __version__ = "0.2.0"
 
 __all__ = [
