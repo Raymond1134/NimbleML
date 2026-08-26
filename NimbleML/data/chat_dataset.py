@@ -36,7 +36,17 @@ def encode_token_ids(tokenizer, text: str) -> list[int]:
 
 def strip_think(text: str) -> str:
     """Remove a leading/embedded ``<think>...</think>`` block from assistant text."""
-    return _THINK_RE.sub("", text or "", count=1).lstrip()
+    out = _THINK_RE.sub("", text or "", count=1)
+    # Half-trained SFT often emits an unclosed <think> or a broken <|endthink|>.
+    cut_at = None
+    lower = out.lower()
+    for marker in ("<think>", "</think>", "<|endthink|>", "<|endthink>"):
+        idx = lower.find(marker)
+        if idx >= 0:
+            cut_at = idx if cut_at is None else min(cut_at, idx)
+    if cut_at is not None:
+        out = out[:cut_at]
+    return out.lstrip()
 
 
 def wrap_assistant_content(content: str) -> str:
