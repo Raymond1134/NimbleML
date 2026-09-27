@@ -1,5 +1,11 @@
-"""Direct preference optimization (DPO) on assistant-token mean NLL."""
+"""Direct preference optimization (DPO).
+
+Use per-pair **summed** sequence NLL (see :func:`tied_sequence_nll`); a
+batch-mean NLL collapses every pair in a micro-batch into one logit.
+"""
 from __future__ import annotations
+
+import numpy as host_np
 
 from NimbleML.utils import np_backend
 from NimbleML.utils.np_backend import np
@@ -32,7 +38,7 @@ def neg_log_sigmoid(logit: Tensor) -> Tensor:
 
 
 def dpo_loss(nll_chosen, nll_rejected, ref_nll_chosen: float, ref_nll_rejected: float, *, beta: float = 0.1):
-    """DPO from mean NLL of policy (tensors) and frozen ref (floats).
+    """DPO from per-sequence summed NLL of the policy (tensors) and frozen ref (floats).
 
     ``logπ = -NLL``, so the DPO logit is
     ``β [ (NLL_l - NLL_w) + (NLL_ref_w - NLL_ref_l) ]``.
@@ -42,3 +48,27 @@ def dpo_loss(nll_chosen, nll_rejected, ref_nll_chosen: float, ref_nll_rejected: 
     const = beta * (float(ref_nll_chosen) - float(ref_nll_rejected))
     logit = delta + const
     return neg_log_sigmoid(logit)
+
+
+def dpo_pair_terms(nll_chosen, nll_rejected, ref_chosen, ref_rejected, *, beta: float = 0.1) -> dict:
+    """Host-side DPO for arrays of summed NLL (one entry per pair, float64).
+
+    Returns per-pair ``loss``, the gradients ``d_chosen`` / ``d_rejected`` of the
+    loss w.r.t. each summed NLL (feed them to :func:`weighted_sum`), and the
+    implicit rewards ``β (logπ - logπ_ref)``.
+    """
+    c = host_np.asarray(nll_chosen, dtype=host_np.float64)
+    r = host_np.asarray(nll_rejected, dtype=host_np.float64)
+    rc = host_np.asarray(ref_chosen, dtype=host_np.float64)
+    rr = host_np.asarray(ref_rejected, dtype=host_np.float64)
+    beta = float(beta)
+    z = beta * ((r - c) + (rc - rr))
+    loss = host_np.logaddexp(0.0, -z)
+    one_minus_sig = 1.0 / (1.0 + host_np.exp(z))
+    return {
+        "loss": loss,
+        "d_chosen": beta * one_minus_sig,
+        "d_rejected": -beta * one_minus_sig,
+        "reward_chosen": beta * (rc - c),
+        "reward_rejected": beta * (rr - r),
+    }

@@ -4,7 +4,7 @@ from .rmsprop import RMSProp
 from .sgd import SGD
 from .sgdm import SGDM
 from .adam import Adam, AdamW
-from .schedulers import LRScheduler, StepLR, LinearWarmup, CosineAnnealingLR, CosineAnnealing
+from .schedulers import LRScheduler, StepLR, LinearWarmup, CosineAnnealingLR, CosineAnnealing, LinearDecay
 
 __all__ = [
     "Optimizer",
@@ -19,4 +19,5 @@ __all__ = [
     "LinearWarmup",
     "CosineAnnealingLR",
     "CosineAnnealing",
+    "LinearDecay",
 ]

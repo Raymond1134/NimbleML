@@ -14,6 +14,8 @@ from .dataset import (
 from .chat_dataset import (
     CHATML_STOP_STRINGS,
     ChatSFTDataset,
+    GENERIC_SYSTEM,
+    LEGACY_SYSTEM_PERSONA,
     SYSTEM_PERSONA,
     apply_chat_template,
     build_sft_example,
@@ -49,6 +51,8 @@ __all__ = [
     "collate_lm_batch",
     "collate_padded_sequences",
     "collate_chat_batch",
+    "GENERIC_SYSTEM",
+    "LEGACY_SYSTEM_PERSONA",
     "SYSTEM_PERSONA",
     "apply_chat_template",
     "build_sft_example",

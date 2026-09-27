@@ -190,6 +190,7 @@ def _load_optimizer_state(optimizer, meta: dict[str, Any], data: host_np.lib.npy
 
 def _scheduler_state_dict(scheduler) -> dict[str, Any]:
     from NimbleML.optimizers.schedulers.cosine_annealing import CosineAnnealing
+    from NimbleML.optimizers.schedulers.linear_decay import LinearDecay
     from NimbleML.optimizers.schedulers.linear_warmup import LinearWarmup
     from NimbleML.optimizers.schedulers.step_lr import StepLR
 
@@ -203,7 +204,7 @@ def _scheduler_state_dict(scheduler) -> dict[str, Any]:
     if isinstance(scheduler, StepLR):
         meta["step_size"] = int(scheduler.step_size)
         meta["gamma"] = float(scheduler.gamma)
-    elif isinstance(scheduler, CosineAnnealing):
+    elif isinstance(scheduler, (CosineAnnealing, LinearDecay)):
         meta["T_max"] = int(scheduler.T_max)
         meta["eta_min"] = float(scheduler.eta_min)
     elif isinstance(scheduler, LinearWarmup):
@@ -218,6 +219,7 @@ def _scheduler_state_dict(scheduler) -> dict[str, Any]:
 
 def _load_scheduler_state(scheduler, meta: dict[str, Any]) -> None:
     from NimbleML.optimizers.schedulers.cosine_annealing import CosineAnnealing
+    from NimbleML.optimizers.schedulers.linear_decay import LinearDecay
     from NimbleML.optimizers.schedulers.linear_warmup import LinearWarmup
     from NimbleML.optimizers.schedulers.step_lr import StepLR
 
@@ -231,9 +233,9 @@ def _load_scheduler_state(scheduler, meta: dict[str, Any]) -> None:
     if isinstance(scheduler, StepLR):
         if int(scheduler.step_size) != int(meta["step_size"]) or float(scheduler.gamma) != float(meta["gamma"]):
             raise ValueError("StepLR config mismatch")
-    elif isinstance(scheduler, CosineAnnealing):
+    elif isinstance(scheduler, (CosineAnnealing, LinearDecay)):
         if int(scheduler.T_max) != int(meta["T_max"]) or float(scheduler.eta_min) != float(meta["eta_min"]):
-            raise ValueError("CosineAnnealing config mismatch")
+            raise ValueError(f"{cls} config mismatch")
     elif isinstance(scheduler, LinearWarmup):
         if int(scheduler.warmup_steps) != int(meta["warmup_steps"]) or float(scheduler.start_factor) != float(
             meta["start_factor"]

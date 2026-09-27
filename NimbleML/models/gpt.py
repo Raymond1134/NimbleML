@@ -103,6 +103,13 @@ class GPT(Module):
             ignore_index=ignore_index,
         )
 
+    def sequence_nll(self, input_ids, labels, ignore_index):
+        """Summed NLL per row ``(batch,)`` (see ``losses.sequence_nll``)."""
+        from NimbleML.losses.sequence_nll import tied_sequence_nll
+
+        hidden = self._hidden_states(input_ids)
+        return tied_sequence_nll(hidden, self.token_emb.weights, labels, ignore_index)
+
     def _tied_logits(self, x):
         embedding_weights = self.token_emb.weights
         in_shape = x.shape

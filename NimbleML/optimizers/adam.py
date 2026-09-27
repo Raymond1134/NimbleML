@@ -63,6 +63,18 @@ class Adam(Optimizer):
         ]
         self.t = 0
 
+    def reset_master_weights(self):
+        """Re-copy fp32 masters from the current params.
+
+        Masters are snapshotted at construction and written back on every
+        ``step()``; weights loaded into the model afterwards are otherwise
+        overwritten by the stale snapshot on the first update.
+        """
+        np = np_backend.np
+        for i, p in enumerate(self.params):
+            if self.masters[i] is not None:
+                self.masters[i] = np.asarray(p.data, dtype=self._state_dtype).reshape(-1).copy()
+
     def step(self):
         self.t += 1
         bias_corr1 = 1.0 - self.beta1 ** self.t
